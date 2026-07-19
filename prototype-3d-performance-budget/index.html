@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- PROTOTYPE — one Three.js stress bench for deciding V1 budgets. Throw away after the decision. -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Weblocks V1 3D 性能压力台</title>
+  </head>
+  <body>
+    <main>
+      <canvas id="scene" aria-label="Three.js 性能压力场景"></canvas>
+      <section class="panel" aria-label="性能测量状态">
+        <p class="eyebrow">PROTOTYPE — THROWAWAY</p>
+        <h1>V1 3D 性能压力台</h1>
+        <p class="question">250 个 Part 与 1000 个可见 Connection Point，能否保持可用的帧率和跟手响应？</p>
+        <div class="presets" id="presets" aria-label="压力档位"></div>
+        <div class="verdict" id="verdict" aria-live="polite"></div>
+        <dl id="metrics"></dl>
+        <p class="note">移动鼠标或手指采集输入延迟；拖动空白可转动镜头。测量为当前设备本次会话，不上传、不持久化。</p>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "weblocks-3d-performance-prototype",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "check": "node --experimental-strip-types src/check.ts && npm run build"
+  },
+  "dependencies": {
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.185.1",
+    "typescript": "7.0.2",
+    "vite": "8.1.5"
+  }
+}

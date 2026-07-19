@@ -28,12 +28,18 @@ export function evaluateSession(session) {
       label: "单次会话完成首个挑战",
       passed: session.challengeSucceeded === true && within(session.challengeCompletionSeconds, LIMITS.challengeCompletionSeconds),
       detail: `${session.challengeSucceeded ? "成功条件已触发" : "成功条件未触发"}；完成 ${seconds(session.challengeCompletionSeconds)}`
+    },
+    {
+      id: "product-reliable",
+      label: "产品可用",
+      passed: !session.productTechnicalFailure,
+      detail: session.productTechnicalFailure ? "发生 Weblocks 技术故障" : "未发生 Weblocks 技术故障"
     }
   ];
   return { passed: criteria.every(criterion => criterion.passed), criteria };
 }
 
-const isEligible = session => session.firstTime && session.age >= 7 && session.age <= 10 && !session.technicalFailure;
+const isEligible = session => session.firstTime && session.age >= 7 && session.age <= 10 && !session.externalSetupFailure;
 const rate = (passed, total) => total ? passed / total : 0;
 
 export function evaluateRound(round) {
@@ -80,7 +86,8 @@ const goodSession = (id, input, age, offset = 0) => ({
   input,
   age,
   firstTime: true,
-  technicalFailure: false,
+  externalSetupFailure: false,
+  productTechnicalFailure: false,
   adultInterventions: 0,
   firstPartPickupSeconds: 35 + offset,
   firstVisibleResultSeconds: 95 + offset,
@@ -127,6 +134,20 @@ export const scenarios = [
     question: "所有时间平均值都漂亮，但两名玩家需要成人解释拿起和放下。",
     expected: false,
     sessions: cleanSix().map(session => ["M7", "T7"].includes(session.id) ? failing(session, "需要成人解释操作", { adultInterventions: 1 }) : session)
+  },
+  {
+    id: "external-setup-failure",
+    name: "外部测试环境故障后补测",
+    question: "六名有效玩家都通过；另一次观察因测试设备断电而排除。",
+    expected: true,
+    sessions: [...cleanSix(), failing(goodSession("X8", "mouse", 8), "测试设备断电", { externalSetupFailure: true })]
+  },
+  {
+    id: "product-technical-failure",
+    name: "产品故障不能被排除",
+    question: "一名玩家达到时间里程碑，但过程中 Weblocks 发生技术故障；整轮仍应失败。",
+    expected: false,
+    sessions: cleanSix().map(session => session.id === "M8" ? failing(session, "Weblocks 技术故障", { productTechnicalFailure: true }) : session)
   },
   {
     id: "slow-first-result",

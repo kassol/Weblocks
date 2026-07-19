@@ -38,6 +38,7 @@ if (process.argv.includes("--check")) {
     console.log(`  首次拿起 ≤ ${LIMITS.firstPartPickupSeconds / 60} 分钟；首次合法放置 ≤ ${LIMITS.firstVisibleResultSeconds / 60} 分钟`);
     console.log(`  挑战成功 ≤ ${LIMITS.challengeCompletionSeconds / 60} 分钟，并作为理解核心拼搭交互的证据`);
     console.log(`  成人干预 0 次；产品内提示允许使用`);
+    console.log(`  Weblocks 故障算失败；仅外部测试环境故障排除并补测`);
     console.log(`  ≥6 名，鼠标/触控各 ≥3；所有有效观察必须通过\n`);
 
     console.log(`${bold}场景${reset} ${scenarioIndex + 1}/${scenarios.length}  ${current.name}${modified ? "（已修改）" : ""}`);
@@ -57,9 +58,9 @@ if (process.argv.includes("--check")) {
     });
 
     console.log(`\n${bold}当前观察 ${session.id}${reset}`);
-    console.log(`  首次玩家=${session.firstTime}  技术故障=${session.technicalFailure}  产品内提示=${session.inProductHintsUsed}  阻塞=${session.blockingIssue ?? "无"}`);
+    console.log(`  首次玩家=${session.firstTime}  产品故障=${session.productTechnicalFailure}  外部故障=${session.externalSetupFailure}  产品内提示=${session.inProductHintsUsed}  阻塞=${session.blockingIssue ?? "无"}`);
     sessionResult.criteria.forEach(criterion => console.log(`  ${mark(criterion.passed)} ${criterion.label} — ${criterion.detail}`));
-    console.log(`\n${bold}[n/p]${reset}${dim} 场景  ${reset}${bold}[j/k]${reset}${dim} 观察  ${reset}${bold}[a]${reset}${dim} 成人帮助  ${reset}${bold}[r]${reset}${dim} 首果+1分  ${reset}${bold}[c]${reset}${dim} 完成+5分  ${reset}${bold}[i]${reset}${dim} 切换输入  ${reset}${bold}[b]${reset}${dim} 阻塞记录  ${reset}${bold}[x]${reset}${dim} 重置  ${reset}${bold}[q]${reset}${dim} 退出${reset}`);
+    console.log(`\n${bold}[n/p]${reset}${dim} 场景  ${reset}${bold}[j/k]${reset}${dim} 观察  ${reset}${bold}[a]${reset}${dim} 成人帮助  ${reset}${bold}[r]${reset}${dim} 首果+1分  ${reset}${bold}[c]${reset}${dim} 完成+5分  ${reset}${bold}[t]${reset}${dim} 产品故障  ${reset}${bold}[i]${reset}${dim} 切换输入  ${reset}${bold}[b]${reset}${dim} 阻塞记录  ${reset}${bold}[x]${reset}${dim} 重置  ${reset}${bold}[q]${reset}${dim} 退出${reset}`);
   }
 
   function moveScenario(delta) {
@@ -86,6 +87,7 @@ if (process.argv.includes("--check")) {
     if (key === "a") { session.adultInterventions = session.adultInterventions ? 0 : 1; modified = true; }
     if (key === "r") { session.firstVisibleResultSeconds = (session.firstVisibleResultSeconds ?? 0) + 60; modified = true; }
     if (key === "c") { session.challengeCompletionSeconds = (session.challengeCompletionSeconds ?? 0) + 300; session.challengeSucceeded = true; modified = true; }
+    if (key === "t") { session.productTechnicalFailure = !session.productTechnicalFailure; modified = true; }
     if (key === "i") { session.input = session.input === "mouse" ? "touch" : "mouse"; modified = true; }
     if (key === "b") { session.blockingIssue = session.blockingIssue ? null : "同一阻塞"; modified = true; }
     if (key === "x") resetScenario();

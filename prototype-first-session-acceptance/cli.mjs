@@ -36,7 +36,7 @@ if (process.argv.includes("--check")) {
     console.log(`${dim}问题：少量人工观察能否阻止平均数掩盖真实的首次体验失败？${reset}\n`);
     console.log(`${bold}候选硬门槛${reset}`);
     console.log(`  首次拿起 ≤ ${LIMITS.firstPartPickupSeconds / 60} 分钟；首次合法放置 ≤ ${LIMITS.firstVisibleResultSeconds / 60} 分钟`);
-    console.log(`  第二次相连放置 ≤ ${LIMITS.secondConnectedPlacementSeconds / 60} 分钟；挑战成功 ≤ ${LIMITS.challengeCompletionSeconds / 60} 分钟`);
+    console.log(`  挑战成功 ≤ ${LIMITS.challengeCompletionSeconds / 60} 分钟，并作为理解核心拼搭交互的证据`);
     console.log(`  成人干预 0 次；产品内提示允许使用`);
     console.log(`  ≥6 名，鼠标/触控各 ≥3；所有有效观察必须通过；同一阻塞不得重复\n`);
 
@@ -54,7 +54,7 @@ if (process.argv.includes("--check")) {
     current.sessions.forEach((item, index) => {
       const result = evaluateSession(item);
       const pointer = index === sessionIndex ? ">" : " ";
-      console.log(`${pointer} ${item.id.padEnd(4)} ${item.age}岁 ${item.input.padEnd(5)} 帮助${item.adultInterventions}  拿起${fmt(item.firstPartPickupSeconds)}  首果${fmt(item.firstVisibleResultSeconds)}  二连${fmt(item.secondConnectedPlacementSeconds)}  完成${fmt(item.challengeCompletionSeconds)}  ${result.passed ? "通过" : "失败"}`);
+      console.log(`${pointer} ${item.id.padEnd(4)} ${item.age}岁 ${item.input.padEnd(5)} 帮助${item.adultInterventions}  拿起${fmt(item.firstPartPickupSeconds)}  首果${fmt(item.firstVisibleResultSeconds)}  完成${fmt(item.challengeCompletionSeconds)}  ${result.passed ? "通过" : "失败"}`);
     });
 
     console.log(`\n${bold}当前观察 ${session.id}${reset}`);

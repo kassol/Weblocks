@@ -3,7 +3,6 @@
 export const LIMITS = Object.freeze({
   firstPartPickupSeconds: 120,
   firstVisibleResultSeconds: 300,
-  secondConnectedPlacementSeconds: 600,
   challengeCompletionSeconds: 1800
 });
 
@@ -23,12 +22,6 @@ export function evaluateSession(session) {
       label: "5 分钟内获得成果",
       passed: within(session.firstVisibleResultSeconds, LIMITS.firstVisibleResultSeconds),
       detail: `首次合法放置 ${seconds(session.firstVisibleResultSeconds)}`
-    },
-    {
-      id: "build-loop-understood",
-      label: "理解最小拼搭循环",
-      passed: within(session.secondConnectedPlacementSeconds, LIMITS.secondConnectedPlacementSeconds),
-      detail: `第二次相连的合法放置 ${seconds(session.secondConnectedPlacementSeconds)}`
     },
     {
       id: "first-challenge-complete",
@@ -97,7 +90,6 @@ const goodSession = (id, input, age, offset = 0) => ({
   adultInterventions: 0,
   firstPartPickupSeconds: 35 + offset,
   firstVisibleResultSeconds: 95 + offset,
-  secondConnectedPlacementSeconds: 210 + offset,
   challengeCompletionSeconds: 720 + offset,
   challengeSucceeded: true,
   inProductHintsUsed: offset > 20 ? 2 : 1,
@@ -119,7 +111,7 @@ export const scenarios = [
   {
     id: "clean",
     name: "六名玩家顺利完成",
-    question: "两种输入各三名玩家都独立达到四个里程碑。",
+    question: "两种输入各三名玩家都独立达到三个里程碑。",
     expected: true,
     sessions: cleanSix()
   },
@@ -131,7 +123,6 @@ export const scenarios = [
     sessions: cleanSix().map(session => session.id === "M8" ? failing(session, "没有找到部件区", {
       firstPartPickupSeconds: 170,
       firstVisibleResultSeconds: 430,
-      secondConnectedPlacementSeconds: 760,
       challengeCompletionSeconds: null,
       challengeSucceeded: false
     }) : session)
@@ -150,18 +141,16 @@ export const scenarios = [
     expected: false,
     sessions: cleanSix().map(session => ["M10", "T10"].includes(session.id) ? failing(session, "首次合法放置过慢", {
       firstVisibleResultSeconds: 420,
-      secondConnectedPlacementSeconds: 560,
       challengeCompletionSeconds: 1200
     }) : session)
   },
   {
     id: "missing-milestone",
-    name: "完成时间有了，但中间里程碑缺失",
-    question: "两名玩家被记为最终完成，却没有发生首次合法放置或第二次相连放置；缺失值不能当作零秒。",
+    name: "完成时间有了，但首次成果缺失",
+    question: "两名玩家被记为最终完成，却没有发生首次合法放置；缺失值不能当作零秒。",
     expected: false,
     sessions: cleanSix().map(session => ["M10", "T10"].includes(session.id) ? failing(session, "中间里程碑未发生", {
-      firstVisibleResultSeconds: null,
-      secondConnectedPlacementSeconds: null
+      firstVisibleResultSeconds: null
     }) : session)
   },
   {
@@ -172,8 +161,8 @@ export const scenarios = [
     sessions: [
       ...Array.from({ length: 9 }, (_, index) => goodSession(`M${index + 1}`, "mouse", 7 + index % 4, index)),
       goodSession("T1", "touch", 8, 10),
-      failing(goodSession("T2", "touch", 9, 10), "手指遮住 ghost", { secondConnectedPlacementSeconds: 800, challengeCompletionSeconds: null, challengeSucceeded: false }),
-      failing(goodSession("T3", "touch", 10, 10), "双指镜头误放部件", { secondConnectedPlacementSeconds: 900, challengeCompletionSeconds: null, challengeSucceeded: false })
+      failing(goodSession("T2", "touch", 9, 10), "手指遮住 ghost", { challengeCompletionSeconds: null, challengeSucceeded: false }),
+      failing(goodSession("T3", "touch", 10, 10), "双指镜头误放部件", { challengeCompletionSeconds: null, challengeSucceeded: false })
     ]
   },
   {
@@ -185,7 +174,6 @@ export const scenarios = [
       ...Array.from({ length: 6 }, (_, index) => goodSession(`M${index + 1}`, "mouse", 7 + index % 4, index)),
       ...Array.from({ length: 6 }, (_, index) => goodSession(`T${index + 1}`, "touch", 7 + index % 4, index)),
     ].map(session => ["M6", "T6"].includes(session.id) ? failing(session, "无法辨认 ghost 是否可放置", {
-      secondConnectedPlacementSeconds: 900,
       challengeCompletionSeconds: null,
       challengeSucceeded: false
     }) : session)

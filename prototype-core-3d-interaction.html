@@ -30,8 +30,10 @@
     .variant-switcher button { min-width: 46px; min-height: 42px; background: #ffffff18; color: white; box-shadow: none; }
     .variant-label { min-width: 190px; text-align: center; font-weight: 850; }
     .a-palette { left: 18px; top: 112px; width: 166px; }
-    .a-actions { right: 18px; bottom: 86px; display: grid; gap: 10px; }
-    .a-actions button { width: 58px; font-size: 13px; }
+    .a-actions { left: 50%; bottom: 76px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 24px); }
+    .a-actions button { min-width: 72px; font-size: 13px; }
+    .hold-label { min-width: 170px; font-weight: 850; text-align: center; }
+    .hold-label small { display: block; margin-top: 3px; color: #56718a; }
     .b-guide { left: 50%; bottom: 82px; transform: translateX(-50%); width: min(760px, calc(100vw - 24px)); }
     .b-steps { display: flex; gap: 6px; margin-bottom: 10px; }
     .b-step { flex: 1; padding: 8px; border-radius: 12px; background: #dce9f4; text-align: center; font-weight: 850; }
@@ -50,7 +52,9 @@
       .a-palette { top: auto; bottom: 146px; left: 10px; width: 132px; }
       .a-palette .part-button { grid-template-columns: 24px auto; padding: 7px; font-size: 12px; }
       .part-swatch { width: 24px; height: 20px; }
-      .a-actions { right: 10px; bottom: 270px; }
+      .a-actions { bottom: 70px; width: calc(100vw - 12px); gap: 5px; padding: 8px; }
+      .a-actions button { min-width: 52px; width: 52px; padding: 4px; }
+      .hold-label { min-width: 108px; width: 108px; font-size: 11px; }
       .b-guide { bottom: 72px; padding: 9px; }
       .b-guide .part-button { min-width: 0; grid-template-columns: 22px auto; padding: 6px; font-size: 11px; }
       .b-guide .action-row button { min-height: 42px; font-size: 12px; }
@@ -78,7 +82,7 @@
     import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
 
     const variants = {
-      A: { name: "直接操作", subtitle: "部件上拖动，空白处转镜头；同一套手势同时服务鼠标与触控。" },
+      A: { name: "直接操作", subtitle: "点一下拿起，ghost 跟随；拖动可直接搬运，空白处拖动控制镜头。" },
       B: { name: "分步确认", subtitle: "先选部件，再选目标，最后确认；每一步都可撤销。" },
       C: { name: "明确模式", subtitle: "镜头、搭建、编辑互不抢手势，适合需要强确定性的触控操作。" }
     };
@@ -93,7 +97,7 @@
     const app = {
       variant, mode: variant === "C" ? "camera" : "idle", tool: "brick", selected: null,
       armed: null, pending: null, moving: null, last: "原型已就绪", parts: [], nextId: 1,
-      yaw: -.72, pitch: .68, distance: 13
+      yaw: -.72, pitch: .68, distance: 13, input: "无"
     };
 
     const host = document.querySelector("#scene");
@@ -191,6 +195,26 @@
 
     function clearPreview() { if (preview) scene.remove(preview); preview = null; app.pending = null; }
 
+    function setPartDimmed(part, dimmed) {
+      part?.mesh.traverse(object => {
+        if (!object.material) return;
+        object.material.transparent = dimmed;
+        object.material.opacity = dimmed ? .18 : 1;
+        object.material.depthWrite = !dimmed;
+        object.material.needsUpdate = true;
+      });
+    }
+
+    function resetOperation() {
+      setPartDimmed(byId(app.moving), false);
+      app.armed = null; app.moving = null; app.selected = null; clearPreview();
+    }
+
+    function cancelOperation() {
+      const hadSource = Boolean(app.moving);
+      resetOperation(); setLast(hadSource ? "已放回原位" : "已取消新部件"); renderUI();
+    }
+
     function canLift(part) {
       const own = cellsFor(part.gx, part.gz, part.type, part.rot);
       return !app.parts.some(p => p.id !== part.id && p.layer > part.layer && cellsFor(p.gx, p.gz, p.type, p.rot).some(([x,z]) => own.some(([ox,oz]) => x === ox && z === oz)));
@@ -200,17 +224,26 @@
       if (!app.pending?.valid) return setLast("这里不能放置");
       if (app.moving) {
         const part = byId(app.moving);
-        Object.assign(part, app.pending); rebuild(part); app.moving = null;
-        setLast("部件已移动并重新连接");
+        Object.assign(part, app.pending); rebuild(part);
+        clearPreview(); app.armed = null; app.moving = null; app.selected = null;
+        setLast("部件已放下并重新连接");
       } else addPart(app.pending);
-      clearPreview(); app.armed = null; renderUI();
+      clearPreview(); app.armed = null; app.selected = null; renderUI();
     }
 
     function byId(id) { return app.parts.find(p => p.id === id); }
     function select(id) { app.selected = id; app.armed = null; clearPreview(); setLast(id ? `已选择部件 ${id}` : "已取消选择"); renderUI(); }
+    function rotateHeld(delta) {
+      if (!app.armed) return rotateSelected();
+      const source = byId(app.moving);
+      const current = app.pending || source || candidateAt(0, 2, app.armed, 0);
+      const rot = (current.rot + delta + 4) % 4;
+      setPreview(candidateAt(current.gx, current.gz, source?.type || app.armed, rot, source?.id));
+      setLast(`ghost 已${delta < 0 ? "左" : "右"}转 90°`); renderUI();
+    }
     function rotateSelected() {
       const part = byId(app.selected); if (!part) return;
-      const next = { ...part, rot: (part.rot + 1) % 2 };
+      const next = { ...part, rot: (part.rot + 1) % 4 };
       const blocked = cellsFor(next.gx, next.gz, next.type, next.rot).some(([x,z]) => occupied(x,z,next.layer,part.id));
       if (blocked) return setLast("旋转后会重叠，已恢复");
       part.rot = next.rot; rebuild(part); setLast("已旋转 90°"); renderState();
@@ -219,28 +252,42 @@
       const part = byId(app.selected); if (!part) return;
       if (!canLift(part)) return setLast("删除会留下悬空组件，已拒绝");
       scene.remove(part.mesh); app.parts = app.parts.filter(p => p.id !== part.id); app.selected = null;
+      app.armed = null; app.moving = null; clearPreview();
       setLast("部件已删除"); renderUI();
     }
-    function beginMove() {
-      const part = byId(app.selected); if (!part) return;
-      if (!canLift(part)) return setLast("移动会留下悬空组件，已拒绝");
-      app.moving = part.id; app.armed = part.type; setLast("请选择新的吸附位置"); renderUI();
+    function beginMove(id = app.selected) {
+      const part = byId(id); if (!part) return false;
+      if (!canLift(part)) { setLast("拿起会留下悬空组件，已拒绝"); return false; }
+      resetOperation(); app.selected = part.id; app.moving = part.id; app.armed = part.type;
+      setPartDimmed(part, true);
+      setPreview({ gx: part.gx, gz: part.gz, layer: part.layer, type: part.type, rot: part.rot, valid: true });
+      setLast("已拿起：移动 ghost，点击或松手放下"); renderUI(); return true;
     }
 
     function setLast(message) { app.last = message; document.querySelector("#hint").textContent = message; renderState(); }
     function renderState() {
       const selected = byId(app.selected);
-      document.querySelector("#state").innerHTML = `<strong>当前状态</strong><br>方案 ${variant} · ${variants[variant].name}<br>模式 ${app.mode}<br>选择 ${selected ? `部件 ${selected.id}` : "无"}<br>部件 ${app.parts.length} 个<br>镜头 ${Math.round(app.yaw*57)}° / ${Math.round(app.distance)}<br>${app.last}`;
+      const operation = app.moving ? `拿着部件 ${app.moving}` : app.armed ? `拿着新${partTypes[app.armed].name}` : selected ? `选择部件 ${selected.id}` : variant === "C" ? app.mode : "浏览";
+      const ghost = app.pending ? `${app.pending.valid ? "可放下" : "不可放下"} · ${app.pending.rot * 90}°` : "无";
+      document.querySelector("#state").innerHTML = `<strong>当前状态</strong><br>方案 ${variant} · ${variants[variant].name}<br>操作 ${operation}<br>ghost ${ghost}<br>输入 ${app.input}<br>部件 ${app.parts.length} 个<br>镜头 ${Math.round(app.yaw*57)}° / ${Math.round(app.distance)}<br>${app.last}`;
     }
 
     function paletteButtons() {
-      return Object.entries(partTypes).map(([key,p]) => `<button class="part-button ${app.tool===key ? "active" : ""}" data-part="${key}" aria-pressed="${app.tool===key}"><span class="part-swatch" style="background:#${p.color.toString(16).padStart(6,"0")}"></span>${p.name}</button>`).join("");
+      return Object.entries(partTypes).map(([key,p]) => {
+        const active = app.armed === key && !app.moving;
+        return `<button class="part-button ${active ? "active" : ""}" data-part="${key}" aria-pressed="${active}"><span class="part-swatch" style="background:#${p.color.toString(16).padStart(6,"0")}"></span>${p.name}</button>`;
+      }).join("");
     }
 
     function renderUI() {
       const root = document.querySelector("#variant-ui");
       document.querySelector("#subtitle").textContent = variants[variant].subtitle;
-      if (variant === "A") root.innerHTML = `<aside class="panel palette a-palette"><b>选择部件</b>${paletteButtons()}</aside><aside class="panel a-actions"><button data-action="rotate">旋转</button><button data-action="move">移动</button><button data-action="delete">删除</button></aside>`;
+      if (variant === "A") {
+        const heldName = app.moving ? `部件 ${app.moving}` : app.armed ? partTypes[app.armed].name : "";
+        const heldState = app.pending ? app.pending.valid ? "绿色 · 可以放下" : "红色 · 不能放下" : "移动指针让 ghost 跟随";
+        const actions = app.armed ? `<aside class="panel a-actions"><span class="hold-label">拿着 ${heldName}<small>${heldState}</small></span><button data-action="rotate-left" aria-label="向左旋转 90 度">↶ 90°</button><button data-action="rotate-right" aria-label="向右旋转 90 度">↷ 90°</button><button data-action="cancel">${app.moving ? "放回" : "取消"}</button>${app.moving ? `<button data-action="delete">删除</button>` : ""}</aside>` : "";
+        root.innerHTML = `<aside class="panel palette a-palette"><b>拿起新部件</b>${paletteButtons()}</aside>${actions}`;
+      }
       if (variant === "B") {
         const step = app.pending ? 3 : app.armed ? 2 : 1;
         root.innerHTML = `<section class="panel b-guide"><div class="b-steps"><div class="b-step ${step===1?"current":""}">1 选部件</div><div class="b-step ${step===2?"current":""}">2 点目标</div><div class="b-step ${step===3?"current":""}">3 确认</div></div><div class="action-row"><div class="palette">${paletteButtons()}</div><button data-action="move">移动所选</button><button data-action="confirm" ${app.pending?.valid?"":"disabled"}>确认放置</button><button data-action="cancel">取消</button><button data-action="rotate">旋转</button><button data-action="delete">删除</button></div></section>`;
@@ -250,24 +297,31 @@
         root.innerHTML = `<nav class="panel c-modebar" aria-label="操作模式"><button data-mode="camera" aria-pressed="${app.mode==="camera"}">镜头</button><button data-mode="build" aria-pressed="${app.mode==="build"}">搭建</button><button data-mode="edit" aria-pressed="${app.mode==="edit"}">编辑</button></nav><section class="panel c-tools">${tools}</section>`;
       }
       root.querySelectorAll("[data-part]").forEach(button => button.onclick = () => {
-        app.tool = button.dataset.part; app.armed = button.dataset.part;
+        if (variant === "A" || app.moving) resetOperation();
+        app.tool = button.dataset.part; app.armed = button.dataset.part; app.selected = null;
+        if (variant === "A") setPreview(candidateAt(0, 2, app.armed, 0));
         if (variant === "C") app.mode = "build";
-        setLast(variant === "A" ? "在场景中移动并点击放置" : "请在场景中选择吸附位置"); renderUI();
+        setLast(variant === "A" ? "已拿起新部件：ghost 会跟随指针或手指" : "请在场景中选择吸附位置"); renderUI();
       });
       root.querySelectorAll("[data-mode]").forEach(button => button.onclick = () => {
-        app.mode = button.dataset.mode; app.armed = app.mode === "build" ? app.tool : null; clearPreview();
+        resetOperation(); app.mode = button.dataset.mode; app.armed = app.mode === "build" ? app.tool : null;
         setLast(`已切换到${button.textContent}模式`); renderUI();
       });
       root.querySelectorAll("[data-action]").forEach(button => button.onclick = () => {
-        ({ rotate: rotateSelected, move: beginMove, delete: deleteSelected, confirm: commitPending,
-          cancel: () => { app.armed=null; app.moving=null; clearPreview(); setLast("已取消当前操作"); renderUI(); } })[button.dataset.action]?.();
+        ({ rotate: () => app.armed ? rotateHeld(1) : rotateSelected(), "rotate-left": () => rotateHeld(-1), "rotate-right": () => rotateHeld(1),
+          move: () => beginMove(), delete: deleteSelected, confirm: commitPending, cancel: cancelOperation })[button.dataset.action]?.();
       });
       renderState();
     }
 
+    function liftedClientY(clientY, pointerType, holding) {
+      return clientY - (pointerType === "touch" && holding ? 64 : 0);
+    }
+
     function pointFromEvent(e) {
       const rect = renderer.domElement.getBoundingClientRect();
-      pointer.set((e.clientX-rect.left)/rect.width*2-1, -(e.clientY-rect.top)/rect.height*2+1);
+      const clientY = liftedClientY(e.clientY, e.pointerType, Boolean(app.armed));
+      pointer.set((e.clientX-rect.left)/rect.width*2-1, -(clientY-rect.top)/rect.height*2+1);
       raycaster.setFromCamera(pointer,camera);
       const hit = raycaster.intersectObject(ground)[0];
       if (!hit) return null;
@@ -287,7 +341,7 @@
       if (!app.armed) return;
       const point = pointFromEvent(e); if (!point) return;
       const source = app.moving ? byId(app.moving) : null;
-      const type = source?.type || app.armed, rot = source?.rot || 0;
+      const type = source?.type || app.armed, rot = app.pending?.rot ?? source?.rot ?? 0;
       setPreview(candidateAt(point.gx,point.gz,type,rot,source?.id));
     }
 
@@ -304,36 +358,40 @@
     renderer.domElement.addEventListener("wheel", e => { e.preventDefault(); zoom(Math.sign(e.deltaY)); }, {passive:false});
     renderer.domElement.addEventListener("contextmenu", e => e.preventDefault());
     renderer.domElement.addEventListener("pointerdown", e => {
+      app.input = e.pointerType;
       renderer.domElement.setPointerCapture(e.pointerId); pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-      const hit=hitPart(e); gesture={x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,hit:hit?.id||null,moved:false};
+      const hit=hitPart(e), pickAttempted=variant==="A" && hit && !app.armed && e.button===0;
+      gesture={x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,hit:hit?.id||null,moved:false,pickAttempted,pickedUp:false,cameraOnly:e.button===2||pointers.size>1};
+      if (pickAttempted) gesture.pickedUp=beginMove(hit.id);
       if (pointers.size===1 && app.armed) updateCandidate(e);
     });
     renderer.domElement.addEventListener("pointermove", e => {
-      if (app.armed) updateCandidate(e);
-      if (!pointers.has(e.pointerId) || !gesture) return;
+      app.input = e.pointerType;
+      if (!pointers.has(e.pointerId) || !gesture) { if (app.armed) updateCandidate(e); return; }
       const old=pointers.get(e.pointerId); pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
       const dx=e.clientX-old.x,dy=e.clientY-old.y;
       if (Math.hypot(e.clientX-gesture.x,e.clientY-gesture.y)>7) gesture.moved=true;
       if (pointers.size>=2) {
+        gesture.cameraOnly=true;
         const values=[...pointers.values()];
         const distance=Math.hypot(values[0].x-values[1].x,values[0].y-values[1].y);
         if (gesture.pinch) zoom((gesture.pinch-distance)*.025); gesture.pinch=distance; orbit(dx*.35,dy*.35); return;
       }
       const cameraGesture = e.buttons===2 || variant==="C" && app.mode==="camera" || !gesture.hit && !app.armed;
-      if (cameraGesture) orbit(dx,dy);
-      else if (variant==="A" && gesture.hit && gesture.moved && !app.armed) {
-        if (!app.moving) { app.selected=gesture.hit; beginMove(); }
-        updateCandidate(e);
-      }
+      if (cameraGesture) { gesture.cameraOnly=true; orbit(dx,dy); }
+      else if (app.armed) updateCandidate(e);
     });
     renderer.domElement.addEventListener("pointerup", e => {
       pointers.delete(e.pointerId); if (!gesture) return;
-      const hit=hitPart(e), wasMoved=gesture.moved; gesture=null;
+      const hit=hitPart(e), {moved:wasMoved,pickAttempted,pickedUp,cameraOnly}=gesture; gesture=null;
       if (pointers.size) return;
       if (variant==="A") {
-        if (app.armed && app.pending) commitPending();
-        else if (!wasMoved && hit) select(hit.id);
-        else if (!wasMoved) select(null);
+        if (cameraOnly) { if (app.armed) setLast("镜头已调整，仍拿着部件"); renderUI(); }
+        else if (app.armed && app.pending) {
+          if (pickedUp && !wasMoved) { setLast("已拿起：移动 ghost，点击目标放下"); renderUI(); }
+          else commitPending();
+        } else if (pickAttempted) renderUI();
+        else if (!wasMoved && hit) beginMove(hit.id);
       } else if (variant==="B") {
         if (app.armed) { updateCandidate(e); setLast(app.pending?.valid ? "位置可用，请确认" : "此位置不可用"); renderUI(); }
         else if (!wasMoved && hit) select(hit.id);
@@ -356,7 +414,9 @@
     addEventListener("keydown", e => {
       if (["INPUT","TEXTAREA"].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
       if (e.key==="ArrowLeft") switchVariant(-1); if (e.key==="ArrowRight") switchVariant(1);
-      if (e.key==="Delete" || e.key==="Backspace") deleteSelected(); if (e.key.toLowerCase()==="r") rotateSelected();
+      if (e.key==="Delete" || e.key==="Backspace") deleteSelected();
+      if (e.key.toLowerCase()==="q") rotateHeld(-1); if (["r","e"].includes(e.key.toLowerCase())) rotateHeld(1);
+      if (e.key==="Escape") cancelOperation();
     });
     addEventListener("resize", () => {
       renderer.setSize(innerWidth,innerHeight); camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
@@ -366,6 +426,7 @@
       console.assert(cellsFor(0,0,"brick",0).map(String).join("|")==="0,0|1,0", "brick horizontal footprint");
       console.assert(cellsFor(0,0,"brick",1).map(String).join("|")==="0,0|0,1", "brick rotated footprint");
       console.assert(candidateAt(0,0,"plate",0).valid, "ground placement should be valid");
+      console.assert(liftedClientY(100,"touch",true)===36 && liftedClientY(100,"mouse",true)===100, "touch ghost lift");
     }
     addPart({gx:-1,gz:0,layer:0,type:"brick",rot:0},false);
     addPart({gx:1,gz:0,layer:0,type:"brick",rot:1},false);

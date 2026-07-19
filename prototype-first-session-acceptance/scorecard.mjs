@@ -1,7 +1,6 @@
 // PROTOTYPE — pure evaluator for a manual first-session observation scorecard.
 
 export const LIMITS = Object.freeze({
-  firstPartPickupSeconds: 120,
   firstVisibleResultSeconds: 300,
   challengeCompletionSeconds: 1800
 });
@@ -12,16 +11,10 @@ const within = (value, limit) => Number.isFinite(value) && value >= 0 && value <
 export function evaluateSession(session) {
   const criteria = [
     {
-      id: "independent-start",
-      label: "独立开始",
-      passed: session.adultInterventions === 0 && within(session.firstPartPickupSeconds, LIMITS.firstPartPickupSeconds),
-      detail: `首次拿起部件 ${seconds(session.firstPartPickupSeconds)}；成人干预 ${session.adultInterventions} 次`
-    },
-    {
-      id: "first-visible-result",
-      label: "5 分钟内获得成果",
-      passed: within(session.firstVisibleResultSeconds, LIMITS.firstVisibleResultSeconds),
-      detail: `首次合法放置 ${seconds(session.firstVisibleResultSeconds)}`
+      id: "independent-first-result",
+      label: "独立获得首次成果",
+      passed: session.adultInterventions === 0 && within(session.firstVisibleResultSeconds, LIMITS.firstVisibleResultSeconds),
+      detail: `首次合法放置 ${seconds(session.firstVisibleResultSeconds)}；成人干预 ${session.adultInterventions} 次`
     },
     {
       id: "first-challenge-complete",
@@ -74,7 +67,6 @@ export function evaluateNaiveRound(round) {
   const average = field => sessions.reduce((sum, session) => sum + (session[field] ?? LIMITS.challengeCompletionSeconds), 0) / Math.max(sessions.length, 1);
   const completedAverage = completed.reduce((sum, session) => sum + session.challengeCompletionSeconds, 0) / Math.max(completed.length, 1);
   const passed = sessions.length >= 6
-    && average("firstPartPickupSeconds") <= LIMITS.firstPartPickupSeconds
     && average("firstVisibleResultSeconds") <= LIMITS.firstVisibleResultSeconds
     && completedAverage <= LIMITS.challengeCompletionSeconds
     && rate(completed.length, sessions.length) >= 5 / 6;
@@ -89,7 +81,6 @@ const goodSession = (id, input, age, offset = 0) => ({
   externalSetupFailure: false,
   productTechnicalFailure: false,
   adultInterventions: 0,
-  firstPartPickupSeconds: 35 + offset,
   firstVisibleResultSeconds: 95 + offset,
   challengeCompletionSeconds: 720 + offset,
   challengeSucceeded: true,
@@ -112,7 +103,7 @@ export const scenarios = [
   {
     id: "clean",
     name: "六名玩家顺利完成",
-    question: "两种输入各三名玩家都独立达到三个里程碑。",
+    question: "两种输入各三名玩家都独立获得首次成果并完成挑战。",
     expected: true,
     sessions: cleanSix()
   },
@@ -122,7 +113,6 @@ export const scenarios = [
     question: "六名中五名全部通过，但一名鼠标玩家没有找到部件区；严格门槛应否决整轮。",
     expected: false,
     sessions: cleanSix().map(session => session.id === "M8" ? failing(session, "没有找到部件区", {
-      firstPartPickupSeconds: 170,
       firstVisibleResultSeconds: 430,
       challengeCompletionSeconds: null,
       challengeSucceeded: false
@@ -131,7 +121,7 @@ export const scenarios = [
   {
     id: "adult-assisted",
     name: "平均很快，但两人由成人教会",
-    question: "所有时间平均值都漂亮，但两名玩家需要成人解释拿起和放下。",
+    question: "所有时间平均值都漂亮，但两名玩家需要成人解释如何开始拼搭。",
     expected: false,
     sessions: cleanSix().map(session => ["M7", "T7"].includes(session.id) ? failing(session, "需要成人解释操作", { adultInterventions: 1 }) : session)
   },

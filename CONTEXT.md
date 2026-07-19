@@ -31,3 +31,7 @@ _Avoid_: 沙盒模式, 自由模式
 **作品 (Build)**:
 An editable set of parts and connections created during free build or a challenge.
 _Avoid_: 项目, 模型, 存档
+
+**首要玩家 (Primary Player)**:
+The player profile whose needs win when V1 interaction and content trade-offs conflict: an independent home user aged 7–10 with basic reading and mouse or touch skills, but no assumed 3D editing experience.
+_Avoid_: 目标用户, 核心用户, 儿童用户

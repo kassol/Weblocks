@@ -58,9 +58,9 @@ export function evaluateRound(round) {
   const repeatedBlockers = [...blockerCounts].filter(([, count]) => count >= 2).map(([issue, count]) => ({ issue, count }));
   const gates = {
     coverage: sessions.length >= 6 && cohorts.mouse.total >= 3 && cohorts.touch.total >= 3,
-    overall: rate(passed.length, sessions.length) >= 5 / 6,
-    mouse: cohorts.mouse.rate >= 2 / 3,
-    touch: cohorts.touch.rate >= 2 / 3,
+    overall: sessions.length > 0 && passed.length === sessions.length,
+    mouse: cohorts.mouse.total > 0 && cohorts.mouse.passed === cohorts.mouse.total,
+    touch: cohorts.touch.total > 0 && cohorts.touch.passed === cohorts.touch.total,
     noRepeatedBlocker: repeatedBlockers.length === 0
   };
   return {
@@ -125,9 +125,9 @@ export const scenarios = [
   },
   {
     id: "one-outlier",
-    name: "一名玩家成为离群值",
-    question: "六名中五名全部通过；一名鼠标玩家没有找到部件区，是否仍允许整轮通过？",
-    expected: true,
+    name: "一名玩家失败",
+    question: "六名中五名全部通过，但一名鼠标玩家没有找到部件区；严格门槛应否决整轮。",
+    expected: false,
     sessions: cleanSix().map(session => session.id === "M8" ? failing(session, "没有找到部件区", {
       firstPartPickupSeconds: 170,
       firstVisibleResultSeconds: 430,

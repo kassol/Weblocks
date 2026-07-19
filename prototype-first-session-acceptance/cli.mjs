@@ -38,7 +38,7 @@ if (process.argv.includes("--check")) {
     console.log(`  首次拿起 ≤ ${LIMITS.firstPartPickupSeconds / 60} 分钟；首次合法放置 ≤ ${LIMITS.firstVisibleResultSeconds / 60} 分钟`);
     console.log(`  第二次相连放置 ≤ ${LIMITS.secondConnectedPlacementSeconds / 60} 分钟；挑战成功 ≤ ${LIMITS.challengeCompletionSeconds / 60} 分钟`);
     console.log(`  成人干预 0 次；产品内提示允许使用`);
-    console.log(`  ≥6 名，鼠标/触控各 ≥3；总体 ≥5/6，每种输入 ≥2/3；同一阻塞不得重复\n`);
+    console.log(`  ≥6 名，鼠标/触控各 ≥3；所有有效观察必须通过；同一阻塞不得重复\n`);
 
     console.log(`${bold}场景${reset} ${scenarioIndex + 1}/${scenarios.length}  ${current.name}${modified ? "（已修改）" : ""}`);
     console.log(`${dim}${current.question}${reset}`);

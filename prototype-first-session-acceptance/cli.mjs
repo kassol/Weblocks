@@ -38,7 +38,7 @@ if (process.argv.includes("--check")) {
     console.log(`  首次拿起 ≤ ${LIMITS.firstPartPickupSeconds / 60} 分钟；首次合法放置 ≤ ${LIMITS.firstVisibleResultSeconds / 60} 分钟`);
     console.log(`  挑战成功 ≤ ${LIMITS.challengeCompletionSeconds / 60} 分钟，并作为理解核心拼搭交互的证据`);
     console.log(`  成人干预 0 次；产品内提示允许使用`);
-    console.log(`  ≥6 名，鼠标/触控各 ≥3；所有有效观察必须通过；同一阻塞不得重复\n`);
+    console.log(`  ≥6 名，鼠标/触控各 ≥3；所有有效观察必须通过\n`);
 
     console.log(`${bold}场景${reset} ${scenarioIndex + 1}/${scenarios.length}  ${current.name}${modified ? "（已修改）" : ""}`);
     console.log(`${dim}${current.question}${reset}`);
@@ -47,7 +47,6 @@ if (process.argv.includes("--check")) {
     console.log(`  ${mark(round.gates.overall)} 全部标准：${round.passedSessions}/${round.eligible}`);
     console.log(`  ${mark(round.gates.mouse)} 鼠标：${round.cohorts.mouse.passed}/${round.cohorts.mouse.total}`);
     console.log(`  ${mark(round.gates.touch)} 触控：${round.cohorts.touch.passed}/${round.cohorts.touch.total}`);
-    console.log(`  ${mark(round.gates.noRepeatedBlocker)} 重复阻塞：${round.repeatedBlockers.length ? round.repeatedBlockers.map(item => `${item.issue}×${item.count}`).join("；") : "无"}`);
     console.log(`  候选模型=${round.passed ? "通过" : "不通过"}  天真平均值=${naive.passed ? "通过" : "不通过"}  人工预期=${expected}\n`);
 
     console.log(`${bold}全部观察${reset}`);
@@ -60,7 +59,7 @@ if (process.argv.includes("--check")) {
     console.log(`\n${bold}当前观察 ${session.id}${reset}`);
     console.log(`  首次玩家=${session.firstTime}  技术故障=${session.technicalFailure}  产品内提示=${session.inProductHintsUsed}  阻塞=${session.blockingIssue ?? "无"}`);
     sessionResult.criteria.forEach(criterion => console.log(`  ${mark(criterion.passed)} ${criterion.label} — ${criterion.detail}`));
-    console.log(`\n${bold}[n/p]${reset}${dim} 场景  ${reset}${bold}[j/k]${reset}${dim} 观察  ${reset}${bold}[a]${reset}${dim} 成人帮助  ${reset}${bold}[r]${reset}${dim} 首果+1分  ${reset}${bold}[c]${reset}${dim} 完成+5分  ${reset}${bold}[i]${reset}${dim} 切换输入  ${reset}${bold}[b]${reset}${dim} 重复阻塞  ${reset}${bold}[x]${reset}${dim} 重置  ${reset}${bold}[q]${reset}${dim} 退出${reset}`);
+    console.log(`\n${bold}[n/p]${reset}${dim} 场景  ${reset}${bold}[j/k]${reset}${dim} 观察  ${reset}${bold}[a]${reset}${dim} 成人帮助  ${reset}${bold}[r]${reset}${dim} 首果+1分  ${reset}${bold}[c]${reset}${dim} 完成+5分  ${reset}${bold}[i]${reset}${dim} 切换输入  ${reset}${bold}[b]${reset}${dim} 阻塞记录  ${reset}${bold}[x]${reset}${dim} 重置  ${reset}${bold}[q]${reset}${dim} 退出${reset}`);
   }
 
   function moveScenario(delta) {

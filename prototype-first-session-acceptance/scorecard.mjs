@@ -45,16 +45,11 @@ export function evaluateRound(round) {
     const passing = rows.filter(row => row.result.passed).length;
     return [input, { total: rows.length, passed: passing, rate: rate(passing, rows.length) }];
   }));
-  const blockerCounts = evaluated
-    .filter(row => !row.result.passed && row.session.blockingIssue)
-    .reduce((counts, row) => counts.set(row.session.blockingIssue, (counts.get(row.session.blockingIssue) ?? 0) + 1), new Map());
-  const repeatedBlockers = [...blockerCounts].filter(([, count]) => count >= 2).map(([issue, count]) => ({ issue, count }));
   const gates = {
     coverage: sessions.length >= 6 && cohorts.mouse.total >= 3 && cohorts.touch.total >= 3,
     overall: sessions.length > 0 && passed.length === sessions.length,
     mouse: cohorts.mouse.total > 0 && cohorts.mouse.passed === cohorts.mouse.total,
-    touch: cohorts.touch.total > 0 && cohorts.touch.passed === cohorts.touch.total,
-    noRepeatedBlocker: repeatedBlockers.length === 0
+    touch: cohorts.touch.total > 0 && cohorts.touch.passed === cohorts.touch.total
   };
   return {
     passed: Object.values(gates).every(Boolean),
@@ -63,7 +58,6 @@ export function evaluateRound(round) {
     excluded: round.sessions.length - sessions.length,
     passedSessions: passed.length,
     cohorts,
-    repeatedBlockers,
     evaluated
   };
 }
@@ -164,19 +158,6 @@ export const scenarios = [
       failing(goodSession("T2", "touch", 9, 10), "手指遮住 ghost", { challengeCompletionSeconds: null, challengeSucceeded: false }),
       failing(goodSession("T3", "touch", 10, 10), "双指镜头误放部件", { challengeCompletionSeconds: null, challengeSucceeded: false })
     ]
-  },
-  {
-    id: "repeated-blocker",
-    name: "通过率够，但同一阻塞重复",
-    question: "十二名中十名通过；两名不同输入的玩家都无法辨认 ghost 是否可放置。",
-    expected: false,
-    sessions: [
-      ...Array.from({ length: 6 }, (_, index) => goodSession(`M${index + 1}`, "mouse", 7 + index % 4, index)),
-      ...Array.from({ length: 6 }, (_, index) => goodSession(`T${index + 1}`, "touch", 7 + index % 4, index)),
-    ].map(session => ["M6", "T6"].includes(session.id) ? failing(session, "无法辨认 ghost 是否可放置", {
-      challengeCompletionSeconds: null,
-      challengeSucceeded: false
-    }) : session)
   },
   {
     id: "insufficient-coverage",

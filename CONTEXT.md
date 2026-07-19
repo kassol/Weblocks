@@ -12,6 +12,18 @@ _Avoid_: 模块, 物件, 元素
 A reusable description shared by parts of one kind, covering appearance, occupied space, connection capabilities, and configurable properties.
 _Avoid_: 积木配置, 模块协议, 部件模板
 
+**连接位 (Connection Point)**:
+A typed, locally positioned and oriented site on a part where a compatible connection may form, with finite connection capacity.
+_Avoid_: 插槽, 接口, 锚点
+
+**机械连接 (Mechanical Connection)**:
+An explicit relation between compatible connection points on two parts that fixes their relative placement in V1.
+_Avoid_: 父子关系, 吸附, 接触
+
+**占用空间 (Occupied Space)**:
+The solid region a part reserves for placement validity, independent of its visible shape.
+_Avoid_: 碰撞盒, 模型边界
+
 **积木 (Brick)**:
 A structural part used to build form and support other parts through mechanical connections.
 _Avoid_: 方块, 结构模块
@@ -31,6 +43,14 @@ _Avoid_: 沙盒模式, 自由模式
 **作品 (Build)**:
 An editable set of parts and connections created during free build or a challenge.
 _Avoid_: 项目, 模型, 存档
+
+**组件 (Assembly)**:
+A maximal group of parts linked by mechanical connections. A build may contain one or more assemblies.
+_Avoid_: 部件组, 连通分量
+
+**接地 (Grounded)**:
+The condition of an assembly that has at least one part legally touching the workspace ground, without implying structural stability.
+_Avoid_: 固定, 稳定, 支撑
 
 **首要玩家 (Primary Player)**:
 The player profile whose needs win when V1 interaction and content trade-offs conflict: an independent home user aged 7–10 with basic reading and mouse or touch skills, but no assumed 3D editing experience.

@@ -49,7 +49,7 @@ export type Build = {
   extensions: BuildExtension[];
 };
 
-export type PartCatalog = Record<string, readonly string[]>;
+export type PartCatalog = Record<string, Readonly<Record<string, number>>>;
 
 export type LoadOptions = {
   catalog: PartCatalog;
@@ -142,7 +142,7 @@ export function loadBuild(source: string, options: LoadOptions): LoadResult {
   }
 
   const partIds = new Set<string>();
-  const pointIdsByPart = new Map<string, ReadonlySet<string>>();
+  const pointsByPart = new Map<string, Readonly<Record<string, number>>>();
   for (const rawPart of value.parts) {
     if (!isObject(rawPart) || !hasOnlyKeys(rawPart, objectKeys.part)) {
       return failure("MALFORMED_BUILD", "A Part instance has missing or unknown fields.");
@@ -171,11 +171,11 @@ export function loadBuild(source: string, options: LoadOptions): LoadResult {
       return failure("MISSING_PART_DEFINITION", `Part ${id} requires unavailable Part Definition ${definitionKey(ref)}.`);
     }
     partIds.add(id);
-    pointIdsByPart.set(id, new Set(points));
+    pointsByPart.set(id, points);
   }
 
   const connectionIds = new Set<string>();
-  const occupiedEndpoints = new Set<string>();
+  const endpointUseCount = new Map<string, number>();
   for (const rawConnection of value.mechanicalConnections) {
     if (!isObject(rawConnection) || !hasOnlyKeys(rawConnection, objectKeys.connection) || !isNonEmptyString(rawConnection.id) || connectionIds.has(rawConnection.id)) {
       return failure("MALFORMED_BUILD", "Mechanical Connection IDs must be non-empty and unique.");
@@ -185,21 +185,23 @@ export function loadBuild(source: string, options: LoadOptions): LoadResult {
       if (!isObject(rawEndpoint) || !hasOnlyKeys(rawEndpoint, objectKeys.endpoint) || !isNonEmptyString(rawEndpoint.partId) || !isNonEmptyString(rawEndpoint.connectionPointId)) {
         return failure("MALFORMED_BUILD", `Mechanical Connection ${rawConnection.id} has a malformed endpoint.`);
       }
-      const availablePoints = pointIdsByPart.get(rawEndpoint.partId);
+      const availablePoints = pointsByPart.get(rawEndpoint.partId);
       if (!availablePoints) {
         return failure("MALFORMED_BUILD", `Mechanical Connection ${rawConnection.id} references missing Part ${rawEndpoint.partId}.`);
       }
-      if (!availablePoints.has(rawEndpoint.connectionPointId)) {
+      const capacity = availablePoints[rawEndpoint.connectionPointId];
+      if (!Number.isInteger(capacity) || capacity < 1) {
         return failure(
           "MISSING_CONNECTION_POINT",
           `Mechanical Connection ${rawConnection.id} references unavailable Connection Point ${rawEndpoint.partId}/${rawEndpoint.connectionPointId}.`,
         );
       }
       const endpointKey = `${rawEndpoint.partId}/${rawEndpoint.connectionPointId}`;
-      if (occupiedEndpoints.has(endpointKey)) {
-        return failure("MALFORMED_BUILD", `Connection Point ${endpointKey} exceeds its V1 capacity of one.`);
+      const nextUseCount = (endpointUseCount.get(endpointKey) ?? 0) + 1;
+      if (nextUseCount > capacity) {
+        return failure("MALFORMED_BUILD", `Connection Point ${endpointKey} exceeds its declared capacity of ${capacity}.`);
       }
-      occupiedEndpoints.add(endpointKey);
+      endpointUseCount.set(endpointKey, nextUseCount);
     }
     const a = rawConnection.a as ConnectionEndpoint;
     const b = rawConnection.b as ConnectionEndpoint;

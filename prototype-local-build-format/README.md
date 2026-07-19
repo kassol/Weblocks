@@ -18,7 +18,7 @@ npm run check
 
 - A Build is one `weblocks.build` JSON document at schema version `1`.
 - Part instances have stable IDs, exact `{ id, version }` Part Definition references, position, quaternion rotation, and JSON instance properties. Scale is not stored in V1.
-- Mechanical Connections have stable IDs and name both endpoint Part IDs and Connection Point IDs.
+- Mechanical Connections have stable IDs and name both endpoint Part IDs and Connection Point IDs; loading checks each endpoint against the exact definition's declared finite capacity.
 - Extensions are `{ id, version, required, data }` entries. Unknown optional entries load unchanged and produce a warning. An unknown required entry rejects editable loading; the loader never partially opens the Build.
 - A missing exact Part Definition, missing Connection Point, malformed relation, or unsupported schema also rejects editable loading with a specific result.
 - Production persistence uses IndexedDB asynchronously, with one active Build snapshot replaced atomically in one transaction. A committed valid edit schedules autosave after 500 ms; later commits restart the debounce. Selection, ghost, camera, transient drag state, and undo history are runtime state and are not serialized.

@@ -15,8 +15,8 @@ import {
 } from "./build-format.ts";
 
 const catalog = {
-  "weblocks:brick-1@1.0.0": ["top", "bottom"],
-  "weblocks:brick-2@1.0.0": ["top-left", "top-right", "bottom-left", "bottom-right"],
+  "weblocks:brick-1@1.0.0": { top: 2, bottom: 1 },
+  "weblocks:brick-2@1.0.0": { "top-left": 1, "top-right": 1, "bottom-left": 1, "bottom-right": 1 },
 } as const;
 
 const options: LoadOptions = {
@@ -97,6 +97,20 @@ function runBoundaryScenarios(): void {
   assert.equal(malformedResult.ok, false);
   if (!malformedResult.ok) assert.equal(malformedResult.code, "MISSING_CONNECTION_POINT");
 
+  const finiteCapacity = cloneBuild(original);
+  finiteCapacity.parts.push({
+    id: "part-right",
+    definition: { id: "weblocks:brick-1", version: "1.0.0" },
+    transform: { position: [1, 0.5, 0], rotation: [0, 0, 0, 1] },
+    properties: { color: "red" },
+  });
+  finiteCapacity.mechanicalConnections.push({
+    id: "connection-left-right",
+    a: { partId: "part-left", connectionPointId: "top" },
+    b: { partId: "part-right", connectionPointId: "bottom" },
+  });
+  assert.equal(loadBuild(serializeBuild(finiteCapacity), options).ok, true);
+
   let local: LocalBuildState = scheduleCommittedBuild({}, original, 0);
   local = advanceAutosave(local, AUTOSAVE_DEBOUNCE_MS - 1);
   assert.equal(local.stored, undefined);
@@ -105,7 +119,7 @@ function runBoundaryScenarios(): void {
   const resumed = resumeLatest(local, options);
   assert.equal(resumed?.ok, true);
 
-  console.log("build-format: 6 boundary scenarios passed");
+  console.log("build-format: 7 boundary scenarios passed");
 }
 
 type PrototypeState = {

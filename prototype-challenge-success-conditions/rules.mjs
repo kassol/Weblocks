@@ -109,12 +109,12 @@ export const experiments = [
         }
       },
       {
-        name: "一个长部件",
-        summary: "单个长部件的占用空间同时抵达左右区域。",
-        probe: "候选语义认为这也是有效连接；请确认是否符合你的直觉。",
+        name: "单个部件覆盖两区",
+        summary: "单个部件的占用空间同时抵达左右区域；条件不关心它有几个单位长。",
+        probe: "候选语义只看占用空间与区域的关系，不把“长”当作部件类型。",
         expected: true,
         build: {
-          parts: [part("long-part", "player", [-3.5, 0, -.3], [3.5, .5, .3])],
+          parts: [part("spanning-part", "player", [-3.5, 0, -.3], [3.5, .5, .3])],
           connections: []
         }
       }
@@ -164,7 +164,7 @@ export const experiments = [
       },
       {
         name: "从危险区上方跨过",
-        summary: "长部件的俯视投影覆盖危险区，但整个占用空间高于危险体积。",
+        summary: "架高部件的俯视投影覆盖危险区，但整个占用空间高于危险体积。",
         probe: "候选语义判成功；如果视觉语言表达的是地面禁区，你可能希望改成失败。",
         expected: true,
         build: {

@@ -47,6 +47,16 @@ function evaluateCondition(condition, challenge, build, mode) {
     return { passed: Boolean(spanning), detail: spanning ? `组件 [${spanning.join(", ")}] 覆盖全部区域` : "没有单一组件覆盖全部区域" };
   }
 
+  if (condition.type === "parts-share-assembly") {
+    if (mode === "naive") {
+      const passed = condition.parts.every(id => build.parts.some(part => part.id === id));
+      return { passed, detail: passed ? "目标部件都存在（未检查机械连接）" : "至少一个目标部件不存在" };
+    }
+
+    const shared = assemblies(build).find(ids => condition.parts.every(id => ids.includes(id)));
+    return { passed: Boolean(shared), detail: shared ? `目标部件同属组件 [${shared.join(", ")}]` : "目标部件不在同一组件" };
+  }
+
   if (condition.type === "player-parts-clear-zone") {
     const blocked = mode === "naive"
       ? playerParts.filter(part => projectedCenterInside(part, zones[condition.zone]))
@@ -177,10 +187,10 @@ export const experiments = [
   {
     id: "limit-player-parts",
     name: "限制部件数量",
-    question: "数量预算只统计玩家添加的部件，不把挑战初始场景算进去。",
+    question: "数量预算只统计玩家添加的部件，且指定目标部件必须通过机械连接进入同一组件。",
     zones: [zone("base", [-2, 0, -1], [-1, 2, 1]), zone("flag", [1, 0, -1], [2, 2, 1])],
     conditions: [
-      { type: "assembly-spans-zones", zones: ["base", "flag"] },
+      { type: "parts-share-assembly", parts: ["base", "flag"] },
       { type: "player-part-count", min: 1, max: 4 }
     ],
     cases: [
@@ -217,18 +227,17 @@ export const experiments = [
       },
       {
         name: "抵达旗帜区域但未连接旗帜",
-        summary: "玩家只用了三个部件并抵达 flag 区域，但没有与初始 flag 部件形成机械连接。",
-        probe: "当前条件只要求抵达区域，因此判成功；若必须连接旗帜本身，就需要第四种目标部件关系。",
-        expected: true,
+        summary: "玩家只用了两个部件并抵达 flag 区域，但没有与初始 flag 部件形成机械连接。",
+        probe: "已确认仅抵达区域不够；目标旗帜必须加入同一组件。",
+        expected: false,
         build: {
           parts: [
             part("base", "initial", [-1.8, 0, -.4], [-1.2, 1, .4]),
-            part("p1", "player", [-1.2, 0, -.3], [-.4, .5, .3]),
-            part("p2", "player", [-.4, 0, -.3], [.4, .5, .3]),
-            part("p3", "player", [.4, 0, -.3], [1.2, .5, .3]),
+            part("p1", "player", [-1.2, 0, -.3], [0, .5, .3]),
+            part("p2", "player", [0, 0, -.3], [1.2, .5, .3]),
             part("flag", "initial", [1.2, 0, -.4], [1.8, 1.5, .4])
           ],
-          connections: [["base", "p1"], ["p1", "p2"], ["p2", "p3"]]
+          connections: [["base", "p1"], ["p1", "p2"]]
         }
       }
     ]

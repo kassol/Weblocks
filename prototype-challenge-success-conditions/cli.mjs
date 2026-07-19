@@ -18,6 +18,7 @@ if (process.argv.includes("--check")) {
   const conditionLabel = condition => {
     if (condition.type === "assembly-spans-zones") return `assembly-spans-zones(${condition.zones.join(", ")})`;
     if (condition.type === "player-parts-clear-zone") return `player-parts-clear-zone(${condition.zone})`;
+    if (condition.type === "parts-share-assembly") return `parts-share-assembly(${condition.parts.join(", ")})`;
     return `player-part-count(${condition.min ?? 0}..${condition.max ?? "∞"})`;
   };
 
@@ -31,7 +32,7 @@ if (process.argv.includes("--check")) {
     const mismatch = evaluation.passed === example.expected ? "吻合" : evaluation.passed ? "假阳性" : "假阴性";
 
     console.log(`${bold}PROTOTYPE — 挑战成功条件${reset}`);
-    console.log(`${dim}问题：三条声明式规则能否判断多种正确作品，并避开典型误判？${reset}\n`);
+    console.log(`${dim}问题：四条声明式规则能否判断多种正确作品，并避开典型误判？${reset}\n`);
     console.log(`${bold}挑战${reset} ${challengeIndex + 1}/${experiments.length}  ${challenge.name}`);
     console.log(`${dim}${challenge.question}${reset}`);
     console.log(`${bold}案例${reset} ${caseIndex + 1}/${challenge.cases.length}  ${example.name}`);

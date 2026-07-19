@@ -1,0 +1,377 @@
+<!doctype html>
+<!-- PROTOTYPE — Three core building interactions, switchable with ?variant=A|B|C. Run: python3 -m http.server 4173 -->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <title>Weblocks 3D 交互原型</title>
+  <style>
+    :root { color-scheme: light; font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; overflow: hidden; background: #eaf4ff; color: #17324d; }
+    button { min-width: 48px; min-height: 48px; border: 0; border-radius: 16px; background: white; color: inherit; font: 700 15px/1.1 inherit; box-shadow: 0 6px 20px #244d7130; cursor: pointer; touch-action: manipulation; }
+    button:hover, button:focus-visible { outline: 3px solid #2383ff; outline-offset: 2px; }
+    button[aria-pressed="true"], button.active { background: #17324d; color: white; }
+    button:disabled { opacity: .4; cursor: default; }
+    #scene { position: fixed; inset: 0; touch-action: none; }
+    #scene canvas { display: block; width: 100%; height: 100%; }
+    .top-copy { position: fixed; top: max(16px, env(safe-area-inset-top)); left: 18px; z-index: 3; pointer-events: none; }
+    .top-copy h1 { margin: 0 0 4px; font-size: clamp(21px, 3vw, 30px); }
+    .top-copy p { margin: 0; max-width: 540px; color: #46647f; font-weight: 650; }
+    .panel { position: fixed; z-index: 4; padding: 12px; border: 1px solid #fff9; border-radius: 22px; background: #f8fbffe8; box-shadow: 0 12px 40px #214b7028; backdrop-filter: blur(14px); }
+    .palette { display: grid; gap: 10px; }
+    .part-button { display: grid; grid-template-columns: 32px auto; align-items: center; gap: 8px; padding: 8px 12px; text-align: left; }
+    .part-swatch { width: 32px; height: 24px; border-radius: 8px; border: 3px solid #ffffffa8; box-shadow: inset 0 -5px #0001; }
+    .state { position: fixed; z-index: 3; top: 16px; right: 16px; width: min(280px, 42vw); padding: 10px 13px; border-radius: 16px; background: #17324ddd; color: white; font: 650 12px/1.45 ui-monospace, monospace; pointer-events: none; }
+    .state strong { color: #80d8ff; }
+    .hint { position: fixed; z-index: 3; left: 50%; top: 78px; transform: translateX(-50%); max-width: min(640px, 82vw); padding: 8px 14px; border-radius: 999px; background: #fffde8e8; color: #5f4b00; font-weight: 800; text-align: center; pointer-events: none; }
+    .action-row { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
+    .variant-switcher { position: fixed; z-index: 20; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 7px; border-radius: 999px; background: #10263b; color: white; box-shadow: 0 10px 36px #07152266; }
+    .variant-switcher button { min-width: 46px; min-height: 42px; background: #ffffff18; color: white; box-shadow: none; }
+    .variant-label { min-width: 190px; text-align: center; font-weight: 850; }
+    .a-palette { left: 18px; top: 112px; width: 166px; }
+    .a-actions { right: 18px; bottom: 86px; display: grid; gap: 10px; }
+    .a-actions button { width: 58px; font-size: 13px; }
+    .b-guide { left: 50%; bottom: 82px; transform: translateX(-50%); width: min(760px, calc(100vw - 24px)); }
+    .b-steps { display: flex; gap: 6px; margin-bottom: 10px; }
+    .b-step { flex: 1; padding: 8px; border-radius: 12px; background: #dce9f4; text-align: center; font-weight: 850; }
+    .b-step.current { background: #ffd348; color: #4b3b00; }
+    .b-guide .palette { display: flex; }
+    .b-guide .part-button { flex: 1; }
+    .b-guide .action-row { justify-content: flex-end; }
+    .c-modebar { left: 50%; top: max(16px, env(safe-area-inset-top)); transform: translateX(-50%); display: flex; gap: 8px; }
+    .c-tools { left: 50%; bottom: 82px; transform: translateX(-50%); display: flex; gap: 9px; max-width: calc(100vw - 24px); }
+    .c-tools .part-button { min-width: 128px; }
+    .kbd { display: inline-block; padding: 2px 6px; border: 1px solid #668098; border-radius: 6px; background: #fff; color: #17324d; font-size: 11px; }
+    @media (max-width: 700px) {
+      .state { top: auto; right: 10px; bottom: 146px; width: 190px; font-size: 10px; }
+      .top-copy { max-width: calc(100vw - 30px); }
+      .top-copy p { max-width: 310px; font-size: 13px; }
+      .a-palette { top: auto; bottom: 146px; left: 10px; width: 132px; }
+      .a-palette .part-button { grid-template-columns: 24px auto; padding: 7px; font-size: 12px; }
+      .part-swatch { width: 24px; height: 20px; }
+      .a-actions { right: 10px; bottom: 270px; }
+      .b-guide { bottom: 72px; padding: 9px; }
+      .b-guide .part-button { min-width: 0; grid-template-columns: 22px auto; padding: 6px; font-size: 11px; }
+      .b-guide .action-row button { min-height: 42px; font-size: 12px; }
+      .c-modebar { top: 76px; }
+      .c-modebar button { min-height: 42px; font-size: 12px; }
+      .c-tools { overflow-x: auto; }
+      .variant-label { min-width: 150px; font-size: 12px; }
+      .hint { top: 128px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="scene" aria-label="3D 拼搭区域"></div>
+  <header class="top-copy"><h1>Weblocks 交互实验</h1><p id="subtitle"></p></header>
+  <div class="hint" id="hint" aria-live="polite"></div>
+  <div class="state" id="state" aria-live="polite"></div>
+  <div id="variant-ui"></div>
+  <nav class="variant-switcher" id="variant-switcher" aria-label="原型方案切换">
+    <button id="variant-prev" aria-label="上一个方案">←</button>
+    <span class="variant-label" id="variant-label"></span>
+    <button id="variant-next" aria-label="下一个方案">→</button>
+  </nav>
+
+  <script type="module">
+    import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+
+    const variants = {
+      A: { name: "直接操作", subtitle: "部件上拖动，空白处转镜头；同一套手势同时服务鼠标与触控。" },
+      B: { name: "分步确认", subtitle: "先选部件，再选目标，最后确认；每一步都可撤销。" },
+      C: { name: "明确模式", subtitle: "镜头、搭建、编辑互不抢手势，适合需要强确定性的触控操作。" }
+    };
+    const query = new URLSearchParams(location.search);
+    const variant = variants[query.get("variant")] ? query.get("variant") : "A";
+    const CELL = 1.25, HEIGHT = .72;
+    const colors = { brick: 0x2f80ed, plate: 0xffa629 };
+    const partTypes = {
+      brick: { name: "长积木", length: 2, height: 1, color: colors.brick },
+      plate: { name: "小积木", length: 1, height: 1, color: colors.plate }
+    };
+    const app = {
+      variant, mode: variant === "C" ? "camera" : "idle", tool: "brick", selected: null,
+      armed: null, pending: null, moving: null, last: "原型已就绪", parts: [], nextId: 1,
+      yaw: -.72, pitch: .68, distance: 13
+    };
+
+    const host = document.querySelector("#scene");
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    host.append(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xeaf4ff);
+    scene.fog = new THREE.Fog(0xeaf4ff, 16, 28);
+    const camera = new THREE.PerspectiveCamera(42, 1, .1, 100);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x7090aa, 2.4));
+    const sun = new THREE.DirectionalLight(0xffffff, 3.2);
+    sun.position.set(5, 9, 6); sun.castShadow = true; scene.add(sun);
+
+    const groundMaterial = new THREE.MeshStandardMaterial({ color: 0xd7e8f3, roughness: .95 });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(24, 24), groundMaterial);
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; ground.userData.ground = true; scene.add(ground);
+    const grid = new THREE.GridHelper(20, 16, 0x6ba2c8, 0x9fc4dc);
+    grid.position.y = .005; scene.add(grid);
+
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const pointers = new Map();
+    let gesture = null, preview = null;
+
+    function cellsFor(gx, gz, type, rot) {
+      const n = partTypes[type].length;
+      return Array.from({ length: n }, (_, i) => rot % 2 ? [gx, gz + i] : [gx + i, gz]);
+    }
+
+    function occupied(gx, gz, layer, ignore) {
+      return app.parts.some(p => p.id !== ignore && p.layer === layer && cellsFor(p.gx, p.gz, p.type, p.rot).some(([x,z]) => x === gx && z === gz));
+    }
+
+    function candidateAt(gx, gz, type, rot, ignore = null) {
+      const cells = cellsFor(gx, gz, type, rot);
+      const tops = cells.map(([x,z]) => app.parts.reduce((top, p) => {
+        if (p.id === ignore) return top;
+        return cellsFor(p.gx, p.gz, p.type, p.rot).some(([px,pz]) => px === x && pz === z) ? Math.max(top, p.layer) : top;
+      }, -1));
+      const layer = Math.max(0, ...tops.map(x => x + 1));
+      const inside = cells.every(([x,z]) => Math.abs(x) <= 6 && Math.abs(z) <= 6);
+      const clear = cells.every(([x,z]) => !occupied(x, z, layer, ignore));
+      const supported = layer === 0 || cells.some(([x,z]) => occupied(x, z, layer - 1, ignore));
+      return { gx, gz, layer, type, rot, valid: inside && clear && supported };
+    }
+
+    function partCenter(data) {
+      const cells = cellsFor(data.gx, data.gz, data.type, data.rot);
+      const xs = cells.map(c => c[0]), zs = cells.map(c => c[1]);
+      return new THREE.Vector3((Math.min(...xs) + Math.max(...xs)) * CELL / 2, data.layer * HEIGHT + HEIGHT / 2, (Math.min(...zs) + Math.max(...zs)) * CELL / 2);
+    }
+
+    function makePartMesh(data, ghost = false) {
+      const cells = cellsFor(data.gx, data.gz, data.type, data.rot);
+      const alongX = data.rot % 2 === 0;
+      const width = (alongX ? cells.length : 1) * CELL - .09;
+      const depth = (alongX ? 1 : cells.length) * CELL - .09;
+      const group = new THREE.Group();
+      const material = new THREE.MeshStandardMaterial({
+        color: ghost ? (data.valid ? 0x22c777 : 0xff4f5e) : partTypes[data.type].color,
+        transparent: ghost, opacity: ghost ? .52 : 1, roughness: .52
+      });
+      const box = new THREE.Mesh(new THREE.BoxGeometry(width, HEIGHT - .08, depth), material);
+      box.castShadow = !ghost; box.receiveShadow = true; group.add(box);
+      cells.forEach(([x,z]) => {
+        const stud = new THREE.Mesh(new THREE.CylinderGeometry(.18, .18, .13, 20), material);
+        stud.position.set(x * CELL - partCenter(data).x, HEIGHT / 2, z * CELL - partCenter(data).z);
+        stud.castShadow = !ghost; group.add(stud);
+      });
+      group.position.copy(partCenter(data));
+      group.traverse(o => { o.userData.partId = data.id; });
+      return group;
+    }
+
+    function addPart(data, announce = true) {
+      const part = { ...data, id: app.nextId++ };
+      part.mesh = makePartMesh(part); app.parts.push(part); scene.add(part.mesh);
+      if (announce) setLast(`${partTypes[part.type].name}已吸附放置`);
+      return part;
+    }
+
+    function rebuild(part) {
+      scene.remove(part.mesh); part.mesh = makePartMesh(part); scene.add(part.mesh);
+    }
+
+    function setPreview(data) {
+      if (preview) scene.remove(preview);
+      app.pending = data;
+      preview = data ? makePartMesh({ ...data, id: "preview" }, true) : null;
+      if (preview) scene.add(preview);
+      renderState();
+    }
+
+    function clearPreview() { if (preview) scene.remove(preview); preview = null; app.pending = null; }
+
+    function canLift(part) {
+      const own = cellsFor(part.gx, part.gz, part.type, part.rot);
+      return !app.parts.some(p => p.id !== part.id && p.layer > part.layer && cellsFor(p.gx, p.gz, p.type, p.rot).some(([x,z]) => own.some(([ox,oz]) => x === ox && z === oz)));
+    }
+
+    function commitPending() {
+      if (!app.pending?.valid) return setLast("这里不能放置");
+      if (app.moving) {
+        const part = byId(app.moving);
+        Object.assign(part, app.pending); rebuild(part); app.moving = null;
+        setLast("部件已移动并重新连接");
+      } else addPart(app.pending);
+      clearPreview(); app.armed = null; renderUI();
+    }
+
+    function byId(id) { return app.parts.find(p => p.id === id); }
+    function select(id) { app.selected = id; app.armed = null; clearPreview(); setLast(id ? `已选择部件 ${id}` : "已取消选择"); renderUI(); }
+    function rotateSelected() {
+      const part = byId(app.selected); if (!part) return;
+      const next = { ...part, rot: (part.rot + 1) % 2 };
+      const blocked = cellsFor(next.gx, next.gz, next.type, next.rot).some(([x,z]) => occupied(x,z,next.layer,part.id));
+      if (blocked) return setLast("旋转后会重叠，已恢复");
+      part.rot = next.rot; rebuild(part); setLast("已旋转 90°"); renderState();
+    }
+    function deleteSelected() {
+      const part = byId(app.selected); if (!part) return;
+      if (!canLift(part)) return setLast("删除会留下悬空组件，已拒绝");
+      scene.remove(part.mesh); app.parts = app.parts.filter(p => p.id !== part.id); app.selected = null;
+      setLast("部件已删除"); renderUI();
+    }
+    function beginMove() {
+      const part = byId(app.selected); if (!part) return;
+      if (!canLift(part)) return setLast("移动会留下悬空组件，已拒绝");
+      app.moving = part.id; app.armed = part.type; setLast("请选择新的吸附位置"); renderUI();
+    }
+
+    function setLast(message) { app.last = message; document.querySelector("#hint").textContent = message; renderState(); }
+    function renderState() {
+      const selected = byId(app.selected);
+      document.querySelector("#state").innerHTML = `<strong>当前状态</strong><br>方案 ${variant} · ${variants[variant].name}<br>模式 ${app.mode}<br>选择 ${selected ? `部件 ${selected.id}` : "无"}<br>部件 ${app.parts.length} 个<br>镜头 ${Math.round(app.yaw*57)}° / ${Math.round(app.distance)}<br>${app.last}`;
+    }
+
+    function paletteButtons() {
+      return Object.entries(partTypes).map(([key,p]) => `<button class="part-button ${app.tool===key ? "active" : ""}" data-part="${key}" aria-pressed="${app.tool===key}"><span class="part-swatch" style="background:#${p.color.toString(16).padStart(6,"0")}"></span>${p.name}</button>`).join("");
+    }
+
+    function renderUI() {
+      const root = document.querySelector("#variant-ui");
+      document.querySelector("#subtitle").textContent = variants[variant].subtitle;
+      if (variant === "A") root.innerHTML = `<aside class="panel palette a-palette"><b>选择部件</b>${paletteButtons()}</aside><aside class="panel a-actions"><button data-action="rotate">旋转</button><button data-action="move">移动</button><button data-action="delete">删除</button></aside>`;
+      if (variant === "B") {
+        const step = app.pending ? 3 : app.armed ? 2 : 1;
+        root.innerHTML = `<section class="panel b-guide"><div class="b-steps"><div class="b-step ${step===1?"current":""}">1 选部件</div><div class="b-step ${step===2?"current":""}">2 点目标</div><div class="b-step ${step===3?"current":""}">3 确认</div></div><div class="action-row"><div class="palette">${paletteButtons()}</div><button data-action="move">移动所选</button><button data-action="confirm" ${app.pending?.valid?"":"disabled"}>确认放置</button><button data-action="cancel">取消</button><button data-action="rotate">旋转</button><button data-action="delete">删除</button></div></section>`;
+      }
+      if (variant === "C") {
+        const tools = app.mode === "build" ? `${paletteButtons()}<span>点场景立即放置</span>` : app.mode === "edit" ? `<button data-action="move">移动</button><button data-action="rotate">旋转</button><button data-action="delete">删除</button>` : `<span>拖动旋转 · 双指缩放 · 滚轮缩放</span>`;
+        root.innerHTML = `<nav class="panel c-modebar" aria-label="操作模式"><button data-mode="camera" aria-pressed="${app.mode==="camera"}">镜头</button><button data-mode="build" aria-pressed="${app.mode==="build"}">搭建</button><button data-mode="edit" aria-pressed="${app.mode==="edit"}">编辑</button></nav><section class="panel c-tools">${tools}</section>`;
+      }
+      root.querySelectorAll("[data-part]").forEach(button => button.onclick = () => {
+        app.tool = button.dataset.part; app.armed = button.dataset.part;
+        if (variant === "C") app.mode = "build";
+        setLast(variant === "A" ? "在场景中移动并点击放置" : "请在场景中选择吸附位置"); renderUI();
+      });
+      root.querySelectorAll("[data-mode]").forEach(button => button.onclick = () => {
+        app.mode = button.dataset.mode; app.armed = app.mode === "build" ? app.tool : null; clearPreview();
+        setLast(`已切换到${button.textContent}模式`); renderUI();
+      });
+      root.querySelectorAll("[data-action]").forEach(button => button.onclick = () => {
+        ({ rotate: rotateSelected, move: beginMove, delete: deleteSelected, confirm: commitPending,
+          cancel: () => { app.armed=null; app.moving=null; clearPreview(); setLast("已取消当前操作"); renderUI(); } })[button.dataset.action]?.();
+      });
+      renderState();
+    }
+
+    function pointFromEvent(e) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.set((e.clientX-rect.left)/rect.width*2-1, -(e.clientY-rect.top)/rect.height*2+1);
+      raycaster.setFromCamera(pointer,camera);
+      const hit = raycaster.intersectObject(ground)[0];
+      if (!hit) return null;
+      return { gx: Math.round(hit.point.x/CELL), gz: Math.round(hit.point.z/CELL) };
+    }
+
+    function hitPart(e) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.set((e.clientX-rect.left)/rect.width*2-1, -(e.clientY-rect.top)/rect.height*2+1);
+      raycaster.setFromCamera(pointer,camera);
+      const meshes = app.parts.map(p=>p.mesh);
+      const hit = raycaster.intersectObjects(meshes,true)[0];
+      return hit ? byId(hit.object.userData.partId) : null;
+    }
+
+    function updateCandidate(e) {
+      if (!app.armed) return;
+      const point = pointFromEvent(e); if (!point) return;
+      const source = app.moving ? byId(app.moving) : null;
+      const type = source?.type || app.armed, rot = source?.rot || 0;
+      setPreview(candidateAt(point.gx,point.gz,type,rot,source?.id));
+    }
+
+    function orbit(dx,dy) {
+      app.yaw -= dx*.008; app.pitch = THREE.MathUtils.clamp(app.pitch+dy*.006,.28,1.22); updateCamera(); renderState();
+    }
+    function zoom(delta) { app.distance = THREE.MathUtils.clamp(app.distance+delta,7,22); updateCamera(); renderState(); }
+    function updateCamera() {
+      const cp=Math.cos(app.pitch), sp=Math.sin(app.pitch);
+      camera.position.set(Math.sin(app.yaw)*cp*app.distance, sp*app.distance+1, Math.cos(app.yaw)*cp*app.distance);
+      camera.lookAt(0,1,0);
+    }
+
+    renderer.domElement.addEventListener("wheel", e => { e.preventDefault(); zoom(Math.sign(e.deltaY)); }, {passive:false});
+    renderer.domElement.addEventListener("contextmenu", e => e.preventDefault());
+    renderer.domElement.addEventListener("pointerdown", e => {
+      renderer.domElement.setPointerCapture(e.pointerId); pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      const hit=hitPart(e); gesture={x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,hit:hit?.id||null,moved:false};
+      if (pointers.size===1 && app.armed) updateCandidate(e);
+    });
+    renderer.domElement.addEventListener("pointermove", e => {
+      if (app.armed) updateCandidate(e);
+      if (!pointers.has(e.pointerId) || !gesture) return;
+      const old=pointers.get(e.pointerId); pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      const dx=e.clientX-old.x,dy=e.clientY-old.y;
+      if (Math.hypot(e.clientX-gesture.x,e.clientY-gesture.y)>7) gesture.moved=true;
+      if (pointers.size>=2) {
+        const values=[...pointers.values()];
+        const distance=Math.hypot(values[0].x-values[1].x,values[0].y-values[1].y);
+        if (gesture.pinch) zoom((gesture.pinch-distance)*.025); gesture.pinch=distance; orbit(dx*.35,dy*.35); return;
+      }
+      const cameraGesture = e.buttons===2 || variant==="C" && app.mode==="camera" || !gesture.hit && !app.armed;
+      if (cameraGesture) orbit(dx,dy);
+      else if (variant==="A" && gesture.hit && gesture.moved && !app.armed) {
+        if (!app.moving) { app.selected=gesture.hit; beginMove(); }
+        updateCandidate(e);
+      }
+    });
+    renderer.domElement.addEventListener("pointerup", e => {
+      pointers.delete(e.pointerId); if (!gesture) return;
+      const hit=hitPart(e), wasMoved=gesture.moved; gesture=null;
+      if (pointers.size) return;
+      if (variant==="A") {
+        if (app.armed && app.pending) commitPending();
+        else if (!wasMoved && hit) select(hit.id);
+        else if (!wasMoved) select(null);
+      } else if (variant==="B") {
+        if (app.armed) { updateCandidate(e); setLast(app.pending?.valid ? "位置可用，请确认" : "此位置不可用"); renderUI(); }
+        else if (!wasMoved && hit) select(hit.id);
+      } else if (app.mode==="build") { updateCandidate(e); commitPending(); }
+      else if (app.mode==="edit") {
+        if (app.armed) { updateCandidate(e); commitPending(); }
+        else if (!wasMoved && hit) select(hit.id);
+      }
+    });
+    renderer.domElement.addEventListener("pointercancel", e => { pointers.delete(e.pointerId); gesture=null; });
+
+    function switchVariant(delta) {
+      const keys=Object.keys(variants), index=keys.indexOf(variant), next=keys[(index+delta+keys.length)%keys.length];
+      const nextQuery=new URLSearchParams(location.search); nextQuery.set("variant",next); location.search=nextQuery;
+    }
+    document.querySelector("#variant-prev").onclick=()=>switchVariant(-1);
+    document.querySelector("#variant-next").onclick=()=>switchVariant(1);
+    document.querySelector("#variant-label").textContent=`${variant} — ${variants[variant].name}`;
+    if (!["localhost","127.0.0.1"].includes(location.hostname)) document.querySelector("#variant-switcher").hidden=true;
+    addEventListener("keydown", e => {
+      if (["INPUT","TEXTAREA"].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
+      if (e.key==="ArrowLeft") switchVariant(-1); if (e.key==="ArrowRight") switchVariant(1);
+      if (e.key==="Delete" || e.key==="Backspace") deleteSelected(); if (e.key.toLowerCase()==="r") rotateSelected();
+    });
+    addEventListener("resize", () => {
+      renderer.setSize(innerWidth,innerHeight); camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+    });
+
+    function selfCheck() {
+      console.assert(cellsFor(0,0,"brick",0).map(String).join("|")==="0,0|1,0", "brick horizontal footprint");
+      console.assert(cellsFor(0,0,"brick",1).map(String).join("|")==="0,0|0,1", "brick rotated footprint");
+      console.assert(candidateAt(0,0,"plate",0).valid, "ground placement should be valid");
+    }
+    addPart({gx:-1,gz:0,layer:0,type:"brick",rot:0},false);
+    addPart({gx:1,gz:0,layer:0,type:"brick",rot:1},false);
+    addPart({gx:-1,gz:0,layer:1,type:"plate",rot:0},false);
+    selfCheck(); updateCamera(); renderUI(); dispatchEvent(new Event("resize"));
+    renderer.setAnimationLoop(()=>renderer.render(scene,camera));
+  </script>
+</body>
+</html>

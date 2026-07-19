@@ -1,0 +1,9 @@
+{
+  "name": "weblocks-prototype-local-build-format",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prototype": "node --experimental-strip-types src/prototype.ts",
+    "check": "node --experimental-strip-types src/prototype.ts --check"
+  }
+}

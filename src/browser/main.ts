@@ -1,12 +1,27 @@
 import "./styles.css";
+import {
+  BRIDGE_CHALLENGE,
+  BRIDGE_CHALLENGE_ID,
+  BRIDGE_CHALLENGE_VERSION,
+  bridgeHint,
+  bridgeProgress,
+} from "../challenge/bridge-challenge.js";
+import {
+  createHintEscalation,
+  isEscalated,
+  noteInvalidPlacement,
+  noteManualHint,
+  noteValidAction,
+} from "../challenge/hint-engine.js";
 import { BRICK_1, BRICK_2, BRICK_4 } from "../definitions/bricks.js";
 import { DefinitionRegistry } from "../definitions/registry.js";
-import type { PartDefinitionRef } from "../definitions/types.js";
-import { quatFromYQuarterTurn } from "../math/types.js";
+import type { ChallengeDefinition, JsonValue, PartDefinitionRef } from "../definitions/types.js";
+import type { AxisAlignedBox } from "../math/box.js";
+import { quatFromYQuarterTurn, type Vec3 } from "../math/types.js";
 import { ApplicationSession, type SessionResult } from "../session/application-session.js";
 import { LocalBuildRepository } from "../storage/local-build-repository.js";
 import { detectAndGateFromWindow } from "./capability.js";
-import { ThreeEditorAdapter } from "./editor-adapter.js";
+import { ThreeEditorAdapter, type ZoneVisual } from "./editor-adapter.js";
 import { IndexedDbSnapshotStore } from "./indexeddb-store.js";
 import { proposePlacementTransform } from "./placement.js";
 import {
@@ -20,11 +35,19 @@ import {
 } from "./pointer-semantics.js";
 
 const registry = DefinitionRegistry.withBuiltIns();
+registry.registerChallengeDefinition(BRIDGE_CHALLENGE);
+
 const catalog: readonly { ref: PartDefinitionRef; label: string; color: string }[] = [
   { ref: { id: BRICK_1.definitionId, version: BRICK_1.definitionVersion }, label: "1 单位", color: "#e04f3f" },
   { ref: { id: BRICK_2.definitionId, version: BRICK_2.definitionVersion }, label: "2 单位", color: "#3d8bfd" },
   { ref: { id: BRICK_4.definitionId, version: BRICK_4.definitionVersion }, label: "4 单位", color: "#2bb673" },
 ];
+
+type ActivityKind = "challenge" | "free-build";
+
+// In-memory latest snapshots so switching activities never loses work.
+let freeBuildSnapshot: string | null = null;
+let challengeSnapshot: string | null = null;
 
 function renderUnsupported(root: HTMLElement, missing: readonly string[]): void {
   root.innerHTML = `<section class="unsupported" role="alert">
@@ -45,8 +68,79 @@ const importFailureLabels: Record<string, string> = {
   CAPACITY_EXCEEDED: "连接位超出容量",
 };
 
-function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, resumeSource: string | null): void {
-  const session = ApplicationSession.startFreeBuild(registry, "free-build-1");
+const conditionLabels: Record<string, string> = {
+  "assembly-spans-zones": "桥同时到达起点区和终点区",
+  "parts-share-assembly": "桥把两岸的支撑连成一体",
+};
+
+function isJsonObject(value: JsonValue | undefined): value is { readonly [key: string]: JsonValue } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function zoneVisualsOf(challenge: ChallengeDefinition): ZoneVisual[] {
+  const meta = challenge.extensions["weblocks.ui.zones"];
+  return challenge.zones.map((zone) => {
+    const entry = isJsonObject(meta) ? meta[zone.zoneId] : undefined;
+    const text = (key: string, fallback: string): string => {
+      const value = isJsonObject(entry) ? entry[key] : undefined;
+      return typeof value === "string" ? value : fallback;
+    };
+    return {
+      zoneId: zone.zoneId,
+      label: text("label", zone.zoneId),
+      icon: text("icon", ""),
+      color: text("color", "#2383ff"),
+      volumes: zone.volumes,
+    };
+  });
+}
+
+function waterVolumesOf(challenge: ChallengeDefinition): readonly AxisAlignedBox[] {
+  const meta = challenge.extensions["weblocks.scenery.water"];
+  const volumes = isJsonObject(meta) ? meta.volumes : undefined;
+  if (!Array.isArray(volumes)) return [];
+  const result: AxisAlignedBox[] = [];
+  for (const raw of volumes) {
+    if (!isJsonObject(raw)) continue;
+    const min = vec3From(raw.min);
+    const max = vec3From(raw.max);
+    if (min && max) result.push({ min, max });
+  }
+  return result;
+}
+
+function vec3From(value: JsonValue | undefined): Vec3 | undefined {
+  if (!Array.isArray(value) || value.length !== 3) return undefined;
+  const [x, y, z] = value;
+  if (typeof x !== "number" || typeof y !== "number" || typeof z !== "number") return undefined;
+  return [x, y, z];
+}
+
+function createSession(kind: ActivityKind): { session: ApplicationSession; kind: ActivityKind } {
+  if (kind === "challenge") {
+    const started = ApplicationSession.startChallenge(
+      registry,
+      BRIDGE_CHALLENGE_ID,
+      BRIDGE_CHALLENGE_VERSION,
+      "bridge-challenge-1",
+    );
+    if (started.ok) {
+      if (challengeSnapshot) started.session.importBuild(challengeSnapshot);
+      return { session: started.session, kind };
+    }
+  }
+  return { session: ApplicationSession.startFreeBuild(registry, "free-build-1"), kind: "free-build" };
+}
+
+function startExperience(root: HTMLElement, repository: LocalBuildRepository, requestedKind: ActivityKind): void {
+  const created = createSession(requestedKind);
+  const session = created.session;
+  const isChallenge = created.kind === "challenge";
+  const challenge = isChallenge
+    ? registry.resolveChallenge(BRIDGE_CHALLENGE_ID, BRIDGE_CHALLENGE_VERSION)
+    : undefined;
+  const initialPartCount = challenge ? challenge.initialScene.parts.length : 0;
+
   let yawTurns = 0;
   let dragging = false;
   let hitAtDown: HitTarget = { type: "empty" };
@@ -55,26 +149,83 @@ function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, res
   let dragDistance = 0;
   let activePointers = new Map<number, PointerSample>();
   let lastLegal = false;
-  let lastMessage = "从托盘拿起一个部件开始搭建";
+  let lastMessage = isChallenge ? "把两岸的支撑连成一座桥" : "从托盘拿起一个部件开始搭建";
+  let hintState = createHintEscalation(Date.now());
+  let prevSuccess = session.state.challengeSuccess;
+  let firstPlacementCelebrated = false;
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  const disposers: (() => void)[] = [];
 
   function persistEffects(result: SessionResult): void {
-    if (result.ok) repository.applyStorageEffects(result.storageEffects);
+    if (!isChallenge && result.ok) repository.applyStorageEffects(result.storageEffects);
   }
 
-  if (resumeSource) {
-    const resumed = session.importBuild(resumeSource);
+  if (!isChallenge && freeBuildSnapshot) {
+    const resumed = session.importBuild(freeBuildSnapshot);
     lastMessage = resumed.ok ? "已恢复上次保存的作品" : "上次保存的作品无法读取，已开始新作品";
   }
 
+  const zoneDescription =
+    isChallenge && challenge
+      ? zoneVisualsOf(challenge)
+          .map((zone) => `${zone.icon} ${zone.label}区`.trim())
+          .join("与")
+      : "";
+  const goalSection =
+    isChallenge && challenge
+      ? `
+      <section class="goal" aria-label="挑战目标">
+        <h1>${challenge.metadata.title}</h1>
+        <p class="goal-prompt">${challenge.metadata.prompt}</p>
+        <p class="visually-hidden">场景中的${zoneDescription}用颜色、条纹与文字标牌标出，桥需要同时到达这两个区域。</p>
+        <ul class="conditions" id="conditions" aria-label="成功条件"></ul>
+        <div class="hint" id="hint">
+          <span class="hint-icon" aria-hidden="true">?</span>
+          <span id="hint-text" aria-live="polite"></span>
+        </div>
+        <div class="goal-actions">
+          <button type="button" id="hint-btn">给我提示</button>
+          <button type="button" id="switch-btn">去自由创作</button>
+        </div>
+      </section>`
+      : "";
+
+  const filebar = isChallenge
+    ? ""
+    : `
+      <div class="filebar" aria-label="作品文件与活动">
+        <button type="button" id="switch-btn">搭桥挑战</button>
+        <button type="button" id="export-btn">导出 JSON</button>
+        <button type="button" id="import-btn">导入 JSON</button>
+        <input type="file" id="import-input" accept="application/json,.json" hidden>
+      </div>`;
+
+  const successOverlay = isChallenge
+    ? `
+      <div class="success-overlay" id="success-overlay" hidden>
+        <div class="success-card" role="dialog" aria-label="挑战成功">
+          <h2>成功！桥搭好了</h2>
+          <p aria-live="assertive" id="success-text">机器人已经可以从起点走到终点。</p>
+          <p class="success-upcoming">后续挑战预告：绕开障碍 → 限制部件数</p>
+          <div class="success-actions">
+            <button type="button" id="success-continue">继续搭</button>
+            <button type="button" id="success-switch">去自由创作</button>
+          </div>
+        </div>
+      </div>`
+    : "";
+
   root.innerHTML = `
     <div class="shell">
-      <div class="brand"><strong>Weblocks</strong><span>Free Build</span></div>
+      <div class="brand"><strong>Weblocks</strong><span>${isChallenge ? "搭桥挑战" : "Free Build"}</span></div>
+      ${goalSection}
       <div class="status" id="status" aria-live="polite"></div>
       <div class="feedback" id="feedback" data-legal="true" hidden>
         <span class="feedback-icon" aria-hidden="true"></span>
         <span id="feedback-text"></span>
       </div>
-      <canvas id="viewport" aria-label="拼搭工作区"></canvas>
+      <canvas id="viewport" aria-label="${isChallenge ? "拼搭工作区：帮机器人搭桥过河" : "拼搭工作区"}"></canvas>
+      <div class="toast" id="toast" hidden aria-live="polite"></div>
       <div class="actions" id="actions" aria-label="持件操作">
         <button type="button" data-action="rotate-left" aria-label="向左旋转 90 度">↶ 90°</button>
         <button type="button" data-action="rotate-right" aria-label="向右旋转 90 度">↷ 90°</button>
@@ -82,11 +233,8 @@ function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, res
         <button type="button" data-action="delete" id="delete-btn" hidden>删除</button>
       </div>
       <nav class="tray" id="tray" aria-label="部件托盘"></nav>
-      <div class="filebar" aria-label="作品文件">
-        <button type="button" id="export-btn">导出 JSON</button>
-        <button type="button" id="import-btn">导入 JSON</button>
-        <input type="file" id="import-input" accept="application/json,.json" hidden>
-      </div>
+      ${filebar}
+      ${successOverlay}
     </div>
   `;
 
@@ -98,14 +246,108 @@ function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, res
   const cancelBtn = root.querySelector<HTMLButtonElement>("#cancel-btn")!;
   const deleteBtn = root.querySelector<HTMLButtonElement>("#delete-btn")!;
   const tray = root.querySelector<HTMLElement>("#tray")!;
-  const exportBtn = root.querySelector<HTMLButtonElement>("#export-btn")!;
-  const importBtn = root.querySelector<HTMLButtonElement>("#import-btn")!;
-  const importInput = root.querySelector<HTMLInputElement>("#import-input")!;
+  const toast = root.querySelector<HTMLElement>("#toast")!;
+  const switchBtn = root.querySelector<HTMLButtonElement>("#switch-btn");
+  const conditionsList = root.querySelector<HTMLElement>("#conditions");
+  const hintText = root.querySelector<HTMLElement>("#hint-text");
+  const hintBtn = root.querySelector<HTMLButtonElement>("#hint-btn");
+  const overlay = root.querySelector<HTMLElement>("#success-overlay");
 
   const adapter = new ThreeEditorAdapter({ canvas, registry });
   adapter.start();
+  disposers.push(() => adapter.dispose());
+  if (challenge) {
+    adapter.syncZones(zoneVisualsOf(challenge));
+    adapter.syncWater(waterVolumesOf(challenge));
+  }
 
-  for (const item of catalog) {
+  function switchTo(nextKind: ActivityKind): void {
+    if (isChallenge) {
+      challengeSnapshot = session.exportBuild();
+    } else {
+      freeBuildSnapshot = session.exportBuild();
+    }
+    for (const dispose of disposers.splice(0)) dispose();
+    startExperience(root, repository, nextKind);
+  }
+
+  function showToast(text: string): void {
+    toast.textContent = text;
+    toast.hidden = false;
+    toast.classList.remove("toast-pop");
+    void toast.offsetWidth;
+    toast.classList.add("toast-pop");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.hidden = true;
+    }, 2600);
+  }
+  disposers.push(() => clearTimeout(toastTimer));
+
+  function updateHint(): void {
+    if (!isChallenge || !hintText) return;
+    const state = session.state;
+    const progress = bridgeProgress(state.lastEvaluation, state.build.parts.length - initialPartCount);
+    const escalated = !progress.success && isEscalated(hintState, Date.now());
+    const text = bridgeHint(progress, escalated);
+    if (hintText.textContent !== text) hintText.textContent = text;
+  }
+
+  function renderConditions(): void {
+    if (!conditionsList) return;
+    const results = session.state.lastEvaluation?.results ?? [];
+    conditionsList.innerHTML = results
+      .map(
+        (result) => `
+        <li data-passed="${result.passed}">
+          <span class="condition-mark" aria-hidden="true">${result.passed ? "✓" : "○"}</span>
+          <span>${conditionLabels[result.type] ?? result.conditionId}</span>
+          <span class="visually-hidden">${result.passed ? "，已达成" : "，未达成"}</span>
+        </li>`,
+      )
+      .join("");
+  }
+
+  /** Feed committed-edit outcomes into hint escalation and first-placement feedback. */
+  function noteCommitOutcome(result: SessionResult, placedNew: boolean): void {
+    if (!isChallenge) return;
+    if (result.ok) {
+      hintState = noteValidAction(Date.now());
+      if (placedNew && !firstPlacementCelebrated) {
+        firstPlacementCelebrated = true;
+        showToast("漂亮！第一块积木放好了");
+      }
+    } else {
+      hintState = noteInvalidPlacement(hintState);
+    }
+    updateHint();
+  }
+
+  hintBtn?.addEventListener("click", () => {
+    hintState = noteManualHint(hintState);
+    updateHint();
+  });
+
+  switchBtn?.addEventListener("click", () => switchTo(isChallenge ? "free-build" : "challenge"));
+
+  if (overlay) {
+    overlay.querySelector<HTMLButtonElement>("#success-continue")?.addEventListener("click", () => {
+      overlay.hidden = true;
+    });
+    overlay.querySelector<HTMLButtonElement>("#success-switch")?.addEventListener("click", () => {
+      switchTo("free-build");
+    });
+  }
+
+  const trayItems =
+    isChallenge && challenge
+      ? catalog.filter((item) =>
+          challenge.availableParts.some(
+            (available) => available.definition.id === item.ref.id && available.definition.version === item.ref.version,
+          ),
+        )
+      : catalog;
+  for (const item of trayItems) {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.def = `${item.ref.id}@${item.ref.version}`;
@@ -141,41 +383,48 @@ function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, res
     } else if (action === "delete") {
       const result = session.deleteHeld();
       persistEffects(result);
+      if (result.ok) noteCommitOutcome(result, false);
       lastMessage = result.ok ? "已删除部件" : result.message;
     }
     refresh();
   });
 
-  exportBtn.addEventListener("click", () => {
-    const blob = new Blob([session.exportBuild()], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "weblocks-build.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
-    lastMessage = "已导出当前作品为 JSON 文件";
-    refresh();
-  });
+  if (!isChallenge) {
+    const exportBtn = root.querySelector<HTMLButtonElement>("#export-btn")!;
+    const importBtn = root.querySelector<HTMLButtonElement>("#import-btn")!;
+    const importInput = root.querySelector<HTMLInputElement>("#import-input")!;
 
-  importBtn.addEventListener("click", () => importInput.click());
-
-  importInput.addEventListener("change", () => {
-    const file = importInput.files?.[0];
-    importInput.value = "";
-    if (!file) return;
-    void file.text().then((source) => {
-      const result = session.importBuild(source);
-      if (result.ok) {
-        persistEffects(result);
-        lastMessage = "已导入作品";
-      } else {
-        const label = importFailureLabels[result.code] ?? "无法导入";
-        lastMessage = `导入失败（${label}）：${result.message} 当前作品未受影响。`;
-      }
+    exportBtn.addEventListener("click", () => {
+      const blob = new Blob([session.exportBuild()], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "weblocks-build.json";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      lastMessage = "已导出当前作品为 JSON 文件";
       refresh();
     });
-  });
+
+    importBtn.addEventListener("click", () => importInput.click());
+
+    importInput.addEventListener("change", () => {
+      const file = importInput.files?.[0];
+      importInput.value = "";
+      if (!file) return;
+      void file.text().then((source) => {
+        const result = session.importBuild(source);
+        if (result.ok) {
+          persistEffects(result);
+          lastMessage = "已导入作品";
+        } else {
+          const label = importFailureLabels[result.code] ?? "无法导入";
+          lastMessage = `导入失败（${label}）：${result.message} 当前作品未受影响。`;
+        }
+        refresh();
+      });
+    });
+  }
 
   function resize(): void {
     const rect = canvas.getBoundingClientRect();
@@ -218,8 +467,8 @@ function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, res
     feedback.dataset.legal = lastLegal ? "true" : "false";
     feedbackText.textContent = holding
       ? lastLegal
-        ? "可以放下 · 图案与颜色均为合法提示"
-        : "不能放下 · 重叠、浮空或穿地"
+        ? "✓ 可以放下 · 图案与颜色均为合法提示"
+        : "✗ 不能放下 · 重叠、浮空或穿地"
       : "";
 
     status.innerHTML = `<strong>状态</strong><br>模式 ${state.mode}<br>部件 ${state.build.parts.length}<br>连接 ${state.build.mechanicalConnections.length}<br>触控抬升 ${TOUCH_GHOST_OFFSET_PX}px<br>${lastMessage}`;
@@ -229,6 +478,15 @@ function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, res
       const active =
         state.heldNew && def === `${state.heldNew.definition.id}@${state.heldNew.definition.version}`;
       button.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+
+    if (isChallenge) {
+      renderConditions();
+      updateHint();
+      if (state.challengeSuccess && !prevSuccess && overlay) {
+        overlay.hidden = false;
+      }
+      prevSuccess = state.challengeSuccess;
     }
   }
 
@@ -248,6 +506,9 @@ function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, res
       definition,
       groundOrHit: ground,
       yawTurns,
+      ...(state.mode === "holding-existing" && state.heldExisting
+        ? { movingPartId: state.heldExisting.partId }
+        : {}),
     });
     // When holding existing, keep part id path via move; session.updateHeldTransform handles both.
     const result = session.updateHeldTransform(transform);
@@ -273,9 +534,13 @@ function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, res
     dragging = true;
 
     if (session.state.mode === "browsing" && hitAtDown.type === "part" && event.button === 0) {
-      session.pickExistingPart(hitAtDown.partId);
-      lastMessage = `已拿起部件 ${hitAtDown.partId}`;
-      lastLegal = true;
+      const picked = session.pickExistingPart(hitAtDown.partId);
+      if (picked.ok) {
+        lastMessage = `已拿起部件 ${hitAtDown.partId}`;
+        lastLegal = true;
+      } else {
+        lastMessage = picked.code === "AUTHOR_PART_LOCKED" ? "这是场景里的支撑，不能移动" : picked.message;
+      }
       refresh();
     }
   });
@@ -349,8 +614,10 @@ function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, res
       const before = session.state.build.parts.length;
       const result = session.commitHeld();
       persistEffects(result);
+      const placedNew = result.ok && session.state.build.parts.length > before;
+      noteCommitOutcome(result, placedNew);
       if (result.ok) {
-        lastMessage = session.state.build.parts.length > before ? "已放下合法部件" : "已移动部件";
+        lastMessage = placedNew ? "已放下合法部件" : "已移动部件";
         yawTurns = 0;
       } else {
         lastMessage = result.message;
@@ -377,11 +644,18 @@ function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, res
   );
 
   window.addEventListener("resize", resize);
+  disposers.push(() => window.removeEventListener("resize", resize));
   resize();
   refresh();
 
+  if (isChallenge) {
+    const hintTicker = setInterval(updateHint, 1000);
+    disposers.push(() => clearInterval(hintTicker));
+    updateHint();
+  }
+
   // Stress fixture for acceptance metrics when ?stress=1
-  if (new URLSearchParams(location.search).has("stress")) {
+  if (!isChallenge && new URLSearchParams(location.search).has("stress")) {
     void loadStress(session, adapter, refresh);
   }
 
@@ -393,6 +667,12 @@ function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, res
     getFeedbackText: () => feedbackText.textContent,
     isFeedbackLegal: () => feedback.dataset.legal === "true",
     getBuildSnapshot: () => session.exportBuild(),
+    getActivity: () => created.kind,
+    isChallengeSuccess: () => session.state.challengeSuccess,
+    getHintText: () => hintText?.textContent ?? "",
+    getConditionStates: () =>
+      [...(conditionsList?.querySelectorAll("li") ?? [])].map((entry) => entry.dataset.passed === "true"),
+    worldToClient: (x: number, y: number, z: number) => adapter.worldToClient([x, y, z], canvas),
   };
 }
 
@@ -427,21 +707,22 @@ if (!root) {
   throw new Error("#app missing");
 }
 
-async function bootFreeBuild(target: HTMLElement): Promise<void> {
+async function boot(target: HTMLElement): Promise<void> {
   const repository = new LocalBuildRepository(new IndexedDbSnapshotStore());
-  let resumeSource: string | null = null;
   try {
-    resumeSource = await repository.resume();
+    freeBuildSnapshot = await repository.resume();
   } catch {
     // A blocked or failing IndexedDB must not prevent play; start fresh.
-    resumeSource = null;
+    freeBuildSnapshot = null;
   }
-  startFreeBuild(target, repository, resumeSource);
+  // First visit (no stored Build) goes straight into the Challenge; returning
+  // builders resume their stored Free Build exactly as before.
+  startExperience(target, repository, freeBuildSnapshot ? "free-build" : "challenge");
 }
 
 const gate = detectAndGateFromWindow(window);
 if (!gate.ok) {
   renderUnsupported(root, gate.missing);
 } else {
-  void bootFreeBuild(root);
+  void boot(root);
 }

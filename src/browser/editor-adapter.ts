@@ -3,6 +3,7 @@ import type { BuildDocument, PartInstance, Transform } from "../build/document.j
 import type { DefinitionRegistry } from "../definitions/registry.js";
 import { worldConnectionPoint, worldOccupiedBoxes } from "../build/core.js";
 import { MECHANICAL_FIXED_KIND, type PartDefinition } from "../definitions/types.js";
+import type { AxisAlignedBox } from "../math/box.js";
 import type { Vec3 } from "../math/types.js";
 import type { HitTarget } from "./pointer-semantics.js";
 
@@ -11,6 +12,14 @@ const DPR_CAP = 1.5;
 export type EditorAdapterOptions = {
   readonly canvas: HTMLCanvasElement;
   readonly registry: DefinitionRegistry;
+};
+
+export type ZoneVisual = {
+  readonly zoneId: string;
+  readonly label: string;
+  readonly icon: string;
+  readonly color: string;
+  readonly volumes: readonly AxisAlignedBox[];
 };
 
 export class ThreeEditorAdapter {
@@ -23,6 +32,10 @@ export class ThreeEditorAdapter {
   readonly #root = new THREE.Group();
   readonly #partsGroup = new THREE.Group();
   readonly #ghostGroup = new THREE.Group();
+  readonly #zonesGroup = new THREE.Group();
+  readonly #sceneryGroup = new THREE.Group();
+  readonly #zoneResources: { dispose(): void }[] = [];
+  readonly #sceneryResources: { dispose(): void }[] = [];
   readonly #ground: THREE.Mesh;
   readonly #geometryCache = new Map<string, THREE.BoxGeometry>();
   readonly #materialCache = new Map<string, THREE.MeshLambertMaterial>();
@@ -71,6 +84,8 @@ export class ThreeEditorAdapter {
     this.#connectionMesh.count = 0;
     this.#connectionMesh.frustumCulled = false;
 
+    this.#root.add(this.#sceneryGroup);
+    this.#root.add(this.#zonesGroup);
     this.#root.add(this.#partsGroup);
     this.#root.add(this.#ghostGroup);
     this.#root.add(this.#connectionMesh);
@@ -128,6 +143,74 @@ export class ThreeEditorAdapter {
     if (this.#connectionMesh.instanceColor) this.#connectionMesh.instanceColor.needsUpdate = true;
   }
 
+  /** Zone visuals combine color, stripe pattern, outline, and an icon+text plate. */
+  syncZones(zones: readonly ZoneVisual[]): void {
+    this.#clearGroup(this.#zonesGroup);
+    for (const resource of this.#zoneResources.splice(0)) resource.dispose();
+    for (const zone of zones) {
+      const color = new THREE.Color(zone.color);
+      for (const volume of zone.volumes) {
+        const size = boxSize(volume);
+        const center = boxCenter(volume);
+        const geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
+        const texture = this.#stripeTexture(zone.color);
+        const fill = new THREE.MeshBasicMaterial({
+          map: texture,
+          transparent: true,
+          opacity: 0.4,
+          depthWrite: false,
+        });
+        const mesh = new THREE.Mesh(geometry, fill);
+        mesh.position.set(center[0], center[1], center[2]);
+        this.#zonesGroup.add(mesh);
+
+        const edgeGeometry = new THREE.EdgesGeometry(geometry);
+        const edgeMaterial = new THREE.LineBasicMaterial({ color });
+        const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+        edges.position.copy(mesh.position);
+        this.#zonesGroup.add(edges);
+        this.#zoneResources.push(geometry, texture, fill, edgeGeometry, edgeMaterial);
+      }
+
+      const first = zone.volumes[0];
+      if (!first) continue;
+      const center = boxCenter(first);
+      const labelTexture = this.#labelTexture(`${zone.icon} ${zone.label}`.trim(), zone.color);
+      const labelMaterial = new THREE.SpriteMaterial({ map: labelTexture, transparent: true, depthTest: false });
+      const sprite = new THREE.Sprite(labelMaterial);
+      sprite.position.set(center[0], first.max[1] + 0.55, center[2]);
+      sprite.scale.set(2.4, 0.9, 1);
+      this.#zonesGroup.add(sprite);
+      this.#zoneResources.push(labelTexture, labelMaterial);
+    }
+  }
+
+  syncWater(volumes: readonly AxisAlignedBox[]): void {
+    this.#clearGroup(this.#sceneryGroup);
+    for (const resource of this.#sceneryResources.splice(0)) resource.dispose();
+    for (const volume of volumes) {
+      const size = boxSize(volume);
+      const center = boxCenter(volume);
+      const geometry = new THREE.BoxGeometry(size[0], Math.max(size[1], 0.04), size[2]);
+      const material = new THREE.MeshLambertMaterial({ color: 0x4aa3e0, transparent: true, opacity: 0.65 });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(center[0], center[1] + 0.01, center[2]);
+      this.#sceneryGroup.add(mesh);
+      this.#sceneryResources.push(geometry, material);
+    }
+  }
+
+  /** Read-only projection for scripted acceptance journeys. */
+  worldToClient(point: Vec3, canvas: HTMLCanvasElement): { x: number; y: number } | undefined {
+    const projected = new THREE.Vector3(point[0], point[1], point[2]).project(this.#camera);
+    if (projected.z > 1) return undefined;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: rect.left + ((projected.x + 1) / 2) * rect.width,
+      y: rect.top + ((1 - projected.y) / 2) * rect.height,
+    };
+  }
+
   syncGhost(part: PartInstance | undefined, legal: boolean): void {
     this.#clearGroup(this.#ghostGroup);
     if (!part) return;
@@ -176,6 +259,8 @@ export class ThreeEditorAdapter {
   dispose(): void {
     this.#disposed = true;
     cancelAnimationFrame(this.#animation);
+    this.syncZones([]);
+    this.syncWater([]);
     this.#renderer.dispose();
     this.#connectionGeometry.dispose();
     for (const geometry of this.#geometryCache.values()) geometry.dispose();
@@ -263,6 +348,45 @@ export class ThreeEditorAdapter {
     }
   }
 
+  #stripeTexture(color: string): THREE.CanvasTexture {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext("2d")!;
+    context.strokeStyle = color;
+    context.lineWidth = 8;
+    for (let offset = -64; offset < 128; offset += 20) {
+      context.beginPath();
+      context.moveTo(offset, 64);
+      context.lineTo(offset + 64, 0);
+      context.stroke();
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    return texture;
+  }
+
+  #labelTexture(text: string, color: string): THREE.CanvasTexture {
+    const canvas = document.createElement("canvas");
+    canvas.width = 320;
+    canvas.height = 120;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = "#ffffffee";
+    context.strokeStyle = color;
+    context.lineWidth = 8;
+    context.beginPath();
+    context.roundRect(6, 6, canvas.width - 12, canvas.height - 12, 26);
+    context.fill();
+    context.stroke();
+    context.fillStyle = color;
+    context.font = "700 52px 'Avenir Next', 'Segoe UI', sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+    return new THREE.CanvasTexture(canvas);
+  }
+
   #bindContextLoss(canvas: HTMLCanvasElement): void {
     canvas.addEventListener(
       "webglcontextlost",
@@ -272,6 +396,18 @@ export class ThreeEditorAdapter {
       false,
     );
   }
+}
+
+function boxSize(volume: AxisAlignedBox): Vec3 {
+  return [volume.max[0] - volume.min[0], volume.max[1] - volume.min[1], volume.max[2] - volume.min[2]];
+}
+
+function boxCenter(volume: AxisAlignedBox): Vec3 {
+  return [
+    (volume.min[0] + volume.max[0]) / 2,
+    (volume.min[1] + volume.max[1]) / 2,
+    (volume.min[2] + volume.max[2]) / 2,
+  ];
 }
 
 export function transformOnGround(position: Vec3, yawTurns: number, rotation: Transform["rotation"]): Transform {

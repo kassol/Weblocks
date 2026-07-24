@@ -27,6 +27,26 @@ export {
 export { evaluateChallenge } from "./challenge/evaluator.js";
 export type { ChallengeEvaluation } from "./challenge/evaluator.js";
 
+export {
+  BRIDGE_CHALLENGE,
+  BRIDGE_CHALLENGE_ID,
+  BRIDGE_CHALLENGE_VERSION,
+  bridgeHint,
+  bridgeProgress,
+} from "./challenge/bridge-challenge.js";
+export type { BridgeProgress } from "./challenge/bridge-challenge.js";
+
+export {
+  HINT_ESCALATION_IDLE_MS,
+  HINT_ESCALATION_INVALID_STREAK,
+  createHintEscalation,
+  isEscalated,
+  noteInvalidPlacement,
+  noteManualHint,
+  noteValidAction,
+} from "./challenge/hint-engine.js";
+export type { HintEscalation } from "./challenge/hint-engine.js";
+
 export { ApplicationSession } from "./session/application-session.js";
 export type { SessionState, SessionResult, RendererEffect, StorageEffect } from "./session/application-session.js";
 

@@ -15,6 +15,7 @@
     "src/definitions/**/*.ts",
     "src/math/**/*.ts",
     "src/session/**/*.ts",
+    "src/storage/**/*.ts",
     "src/index.ts"
   ]
 }

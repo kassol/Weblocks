@@ -18,3 +18,4 @@ pnpm dev
 
 - [#15](https://github.com/kassol/Weblocks/issues/15) — Build Core, Definition Registry, Application Session
 - [#16](https://github.com/kassol/Weblocks/issues/16) — Free Build 3D direct-manipulation vertical slice
+- [#17](https://github.com/kassol/Weblocks/issues/17) — Local save/resume and JSON import/export

@@ -3,9 +3,11 @@ import { BRICK_1, BRICK_2, BRICK_4 } from "../definitions/bricks.js";
 import { DefinitionRegistry } from "../definitions/registry.js";
 import type { PartDefinitionRef } from "../definitions/types.js";
 import { quatFromYQuarterTurn } from "../math/types.js";
-import { ApplicationSession } from "../session/application-session.js";
+import { ApplicationSession, type SessionResult } from "../session/application-session.js";
+import { LocalBuildRepository } from "../storage/local-build-repository.js";
 import { detectAndGateFromWindow } from "./capability.js";
 import { ThreeEditorAdapter } from "./editor-adapter.js";
+import { IndexedDbSnapshotStore } from "./indexeddb-store.js";
 import { proposePlacementTransform } from "./placement.js";
 import {
   ghostClientPoint,
@@ -34,7 +36,16 @@ function renderUnsupported(root: HTMLElement, missing: readonly string[]): void 
   </section>`;
 }
 
-function startFreeBuild(root: HTMLElement): void {
+const importFailureLabels: Record<string, string> = {
+  MALFORMED_BUILD: "文件内容损坏或格式不符",
+  UNSUPPORTED_SCHEMA_VERSION: "作品文件版本不受支持",
+  MISSING_PART_DEFINITION: "缺少所需的部件定义",
+  MISSING_CONNECTION_POINT: "缺少所需的连接位",
+  UNSUPPORTED_REQUIRED_EXTENSION: "包含不支持的必需扩展",
+  CAPACITY_EXCEEDED: "连接位超出容量",
+};
+
+function startFreeBuild(root: HTMLElement, repository: LocalBuildRepository, resumeSource: string | null): void {
   const session = ApplicationSession.startFreeBuild(registry, "free-build-1");
   let yawTurns = 0;
   let dragging = false;
@@ -45,6 +56,15 @@ function startFreeBuild(root: HTMLElement): void {
   let activePointers = new Map<number, PointerSample>();
   let lastLegal = false;
   let lastMessage = "从托盘拿起一个部件开始搭建";
+
+  function persistEffects(result: SessionResult): void {
+    if (result.ok) repository.applyStorageEffects(result.storageEffects);
+  }
+
+  if (resumeSource) {
+    const resumed = session.importBuild(resumeSource);
+    lastMessage = resumed.ok ? "已恢复上次保存的作品" : "上次保存的作品无法读取，已开始新作品";
+  }
 
   root.innerHTML = `
     <div class="shell">
@@ -62,6 +82,11 @@ function startFreeBuild(root: HTMLElement): void {
         <button type="button" data-action="delete" id="delete-btn" hidden>删除</button>
       </div>
       <nav class="tray" id="tray" aria-label="部件托盘"></nav>
+      <div class="filebar" aria-label="作品文件">
+        <button type="button" id="export-btn">导出 JSON</button>
+        <button type="button" id="import-btn">导入 JSON</button>
+        <input type="file" id="import-input" accept="application/json,.json" hidden>
+      </div>
     </div>
   `;
 
@@ -73,6 +98,9 @@ function startFreeBuild(root: HTMLElement): void {
   const cancelBtn = root.querySelector<HTMLButtonElement>("#cancel-btn")!;
   const deleteBtn = root.querySelector<HTMLButtonElement>("#delete-btn")!;
   const tray = root.querySelector<HTMLElement>("#tray")!;
+  const exportBtn = root.querySelector<HTMLButtonElement>("#export-btn")!;
+  const importBtn = root.querySelector<HTMLButtonElement>("#import-btn")!;
+  const importInput = root.querySelector<HTMLInputElement>("#import-input")!;
 
   const adapter = new ThreeEditorAdapter({ canvas, registry });
   adapter.start();
@@ -112,9 +140,41 @@ function startFreeBuild(root: HTMLElement): void {
       lastMessage = session.state.mode === "browsing" ? "已取消或放回" : lastMessage;
     } else if (action === "delete") {
       const result = session.deleteHeld();
+      persistEffects(result);
       lastMessage = result.ok ? "已删除部件" : result.message;
     }
     refresh();
+  });
+
+  exportBtn.addEventListener("click", () => {
+    const blob = new Blob([session.exportBuild()], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "weblocks-build.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+    lastMessage = "已导出当前作品为 JSON 文件";
+    refresh();
+  });
+
+  importBtn.addEventListener("click", () => importInput.click());
+
+  importInput.addEventListener("change", () => {
+    const file = importInput.files?.[0];
+    importInput.value = "";
+    if (!file) return;
+    void file.text().then((source) => {
+      const result = session.importBuild(source);
+      if (result.ok) {
+        persistEffects(result);
+        lastMessage = "已导入作品";
+      } else {
+        const label = importFailureLabels[result.code] ?? "无法导入";
+        lastMessage = `导入失败（${label}）：${result.message} 当前作品未受影响。`;
+      }
+      refresh();
+    });
   });
 
   function resize(): void {
@@ -288,6 +348,7 @@ function startFreeBuild(root: HTMLElement): void {
     if (event.button === 0 || event.pointerType === "touch") {
       const before = session.state.build.parts.length;
       const result = session.commitHeld();
+      persistEffects(result);
       if (result.ok) {
         lastMessage = session.state.build.parts.length > before ? "已放下合法部件" : "已移动部件";
         yawTurns = 0;
@@ -331,6 +392,7 @@ function startFreeBuild(root: HTMLElement): void {
     getStatusText: () => status.textContent,
     getFeedbackText: () => feedbackText.textContent,
     isFeedbackLegal: () => feedback.dataset.legal === "true",
+    getBuildSnapshot: () => session.exportBuild(),
   };
 }
 
@@ -365,9 +427,21 @@ if (!root) {
   throw new Error("#app missing");
 }
 
+async function bootFreeBuild(target: HTMLElement): Promise<void> {
+  const repository = new LocalBuildRepository(new IndexedDbSnapshotStore());
+  let resumeSource: string | null = null;
+  try {
+    resumeSource = await repository.resume();
+  } catch {
+    // A blocked or failing IndexedDB must not prevent play; start fresh.
+    resumeSource = null;
+  }
+  startFreeBuild(target, repository, resumeSource);
+}
+
 const gate = detectAndGateFromWindow(window);
 if (!gate.ok) {
   renderUnsupported(root, gate.missing);
 } else {
-  startFreeBuild(root);
+  void bootFreeBuild(root);
 }

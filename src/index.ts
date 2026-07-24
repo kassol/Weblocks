@@ -29,3 +29,6 @@ export type { ChallengeEvaluation } from "./challenge/evaluator.js";
 
 export { ApplicationSession } from "./session/application-session.js";
 export type { SessionState, SessionResult, RendererEffect, StorageEffect } from "./session/application-session.js";
+
+export { LocalBuildRepository, AUTOSAVE_DEBOUNCE_MS } from "./storage/local-build-repository.js";
+export type { SnapshotStore, DebounceScheduler } from "./storage/local-build-repository.js";

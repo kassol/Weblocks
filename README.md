@@ -5,11 +5,11 @@ Playful browser construction world. V1 core is renderer-independent.
 ## Commands
 
 ```sh
-npm install
-npm run lint
-npm run typecheck
-npm run build
-npm test
+pnpm install
+pnpm lint
+pnpm typecheck
+pnpm build
+pnpm test
 ```
 
 ## Issue

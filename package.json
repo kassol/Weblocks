@@ -20,8 +20,10 @@
     "test": "tsx --test 'test/**/*.test.ts'"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "pnpm": ">=9"
   },
+  "packageManager": "pnpm@11.12.0",
   "devDependencies": {
     "@types/node": "^22.15.30",
     "tsx": "^4.20.3",

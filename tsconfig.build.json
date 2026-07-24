@@ -6,7 +6,15 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "lib": ["ES2022"]
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/build/**/*.ts",
+    "src/challenge/**/*.ts",
+    "src/definitions/**/*.ts",
+    "src/math/**/*.ts",
+    "src/session/**/*.ts",
+    "src/index.ts"
+  ]
 }

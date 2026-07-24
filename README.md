@@ -1,6 +1,6 @@
 # Weblocks
 
-Playful browser construction world. V1 core is renderer-independent.
+Playful browser construction world. V1 core is renderer-independent; Free Build uses Vite + Three.js.
 
 ## Commands
 
@@ -8,10 +8,13 @@ Playful browser construction world. V1 core is renderer-independent.
 pnpm install
 pnpm lint
 pnpm typecheck
-pnpm build
 pnpm test
+pnpm build
+pnpm preview
+pnpm dev
 ```
 
-## Issue
+## Issues
 
-Implements [#15](https://github.com/kassol/Weblocks/issues/15) — Build Core, Definition Registry, and Application Session.
+- [#15](https://github.com/kassol/Weblocks/issues/15) — Build Core, Definition Registry, Application Session
+- [#16](https://github.com/kassol/Weblocks/issues/16) — Free Build 3D direct-manipulation vertical slice
